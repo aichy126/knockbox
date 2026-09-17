@@ -10,7 +10,6 @@ import (
 
 	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/api/web"
-	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -85,11 +84,13 @@ func channelName(meta, id string) string {
 // ── 概览 ──────────────────────────────────────────────
 
 func (s *Server) adminDash(c *gin.Context) {
-	uid := middleware.UserID(c)
 	const window = int64(24 * 3600)
 	since := time.Now().Unix() - window
 
-	o, err := s.admin().Overview(uid, since, window)
+	// 全站口径，不按登录的这个管理员过滤。理由见 service.Admin.Overview：
+	// 公共实例上管理员自己那个 uid 基本没有流量，按他过滤会让首页第一个数字
+	// 恒显示 0，而服务器实际推了几万条。
+	o, err := s.admin().Overview(0, since, window)
 	if err != nil {
 		log.Error("admin: overview stats failed", log.Any("error", err.Error()))
 	}
@@ -124,8 +125,8 @@ func (s *Server) adminDash(c *gin.Context) {
 	b.WriteString(`<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start">`)
 	b.WriteString(web.Card("最近消息",
 		`<a class="btn ghost sm" href="/admin/messages">查看全部`+web.Svg("chev", 14)+`</a>`,
-		s.recentMessages(uid, 8)))
-	b.WriteString(web.Card("推送失败 · 24 小时", "", s.failureBreakdown(uid, since)))
+		s.recentMessages(0, 8)))
+	b.WriteString(web.Card("推送失败 · 24 小时", "", s.failureBreakdown(0, since)))
 	b.WriteString(`</div>`)
 
 	s.shell(c, "dash", []web.Crumb{web.C("概览")}, b.String())

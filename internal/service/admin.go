@@ -50,27 +50,47 @@ func (o OverviewStat) Rate() (float64, bool) {
 }
 
 // Overview 统计 since 之后的窗口。prev 是紧挨着的上一个等长窗口。
+//
+// uid = 0 表示【全站】，这是管理后台要的那个口径：AdminAuth 的包注释说管理员
+// 看得到所有人的消息，而「24 小时消息」「推送成功率」按登录者切分之后，
+// 公共实例上管理员自己那个 uid 基本没有流量——于是首页第一个数字恒为 0，
+// 而服务器实际推了几万条。推送成功率更是根本不属于某个人：
+// 它是这台服务器与 APNs 之间连接的健康度。
 func (a *Admin) Overview(uid, since, window int64) (OverviewStat, error) {
 	e := a.d.Engine()
 	var o OverviewStat
 	now := time.Now().Unix()
+	// uid=0 时把归属条件整个去掉，而不是拿 0 去比——没有 user_id=0 这个人。
+	mine, args0 := "", []any{}
+	if uid != 0 {
+		mine = " AND user_id=?"
+		args0 = []any{uid}
+	}
+	joined, argsJ := "", []any{}
+	if uid != 0 {
+		joined = " AND m.user_id=?"
+		argsJ = []any{uid}
+	}
+	arg := func(base []any, rest ...any) []any {
+		return append(append([]any{}, base...), rest...)
+	}
 	for _, q := range []struct {
 		dst  *int64
 		sql  string
 		args []any
 	}{
-		{&o.Messages, "SELECT COUNT(*) FROM message WHERE user_id=? AND created_at>=?", []any{uid, since}},
-		{&o.MessagesPrev, "SELECT COUNT(*) FROM message WHERE user_id=? AND created_at>=? AND created_at<?", []any{uid, since - window, since}},
-		{&o.Channels, "SELECT COUNT(*) FROM channel WHERE user_id=?", []any{uid}},
-		{&o.ChannelsMuted, "SELECT COUNT(*) FROM channel WHERE user_id=? AND (muted<>0 OR mute_until>?)", []any{uid, now}},
-		{&o.DevicesPushable, "SELECT COUNT(*) FROM device WHERE user_id=? AND apns_token<>''", []any{uid}},
-		{&o.DevicesSandbox, "SELECT COUNT(*) FROM device WHERE user_id=? AND apns_env='sandbox'", []any{uid}},
+		{&o.Messages, "SELECT COUNT(*) FROM message WHERE created_at>=?" + mine, arg([]any{since}, args0...)},
+		{&o.MessagesPrev, "SELECT COUNT(*) FROM message WHERE created_at>=? AND created_at<?" + mine, arg([]any{since - window, since}, args0...)},
+		{&o.Channels, "SELECT COUNT(*) FROM channel WHERE 1=1" + mine, arg(nil, args0...)},
+		{&o.ChannelsMuted, "SELECT COUNT(*) FROM channel WHERE (muted<>0 OR mute_until>?)" + mine, arg([]any{now}, args0...)},
+		{&o.DevicesPushable, "SELECT COUNT(*) FROM device WHERE apns_token<>''" + mine, arg(nil, args0...)},
+		{&o.DevicesSandbox, "SELECT COUNT(*) FROM device WHERE apns_env='sandbox'" + mine, arg(nil, args0...)},
 		{&o.PushOK, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
-		             WHERE m.user_id=? AND p.created_at>=? AND p.status=1`, []any{uid, since}},
+		             WHERE p.created_at>=? AND p.status=1` + joined, arg([]any{since}, argsJ...)},
 		{&o.PushFailed, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
-		                 WHERE m.user_id=? AND p.created_at>=? AND p.status=3`, []any{uid, since}},
+		                 WHERE p.created_at>=? AND p.status=3` + joined, arg([]any{since}, argsJ...)},
 		{&o.PushRetrying, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
-		                   WHERE m.user_id=? AND p.created_at>=? AND p.status IN (0,2)`, []any{uid, since}},
+		                   WHERE p.created_at>=? AND p.status IN (0,2)` + joined, arg([]any{since}, argsJ...)},
 	} {
 		if _, err := e.SQL(q.sql, q.args...).Get(q.dst); err != nil {
 			return o, err
@@ -87,12 +107,18 @@ type FailureRow struct {
 }
 
 func (a *Admin) Failures(uid, since int64, limit int) ([]FailureRow, error) {
+	mine, args := "", []any{since}
+	if uid != 0 {
+		mine = " AND m.user_id=?"
+		args = append(args, uid)
+	}
+	args = append(args, limit)
 	var out []FailureRow
 	err := a.d.Engine().SQL(`
 		SELECT COALESCE(NULLIF(p.reason,''),'(无原因)') AS reason, p.http_status, COUNT(*) AS n
 		FROM push_log p JOIN message m ON m.id=p.message_id
-		WHERE m.user_id=? AND p.created_at>=? AND p.status=3
-		GROUP BY reason, p.http_status ORDER BY n DESC LIMIT ?`, uid, since, limit).Find(&out)
+		WHERE p.created_at>=? AND p.status=3`+mine+`
+		GROUP BY reason, p.http_status ORDER BY n DESC LIMIT ?`, args...).Find(&out)
 	return out, err
 }
 
@@ -180,15 +206,22 @@ func (a *Admin) Messages(f MessageFilter) ([]MessageRow, error) {
 	return out, err
 }
 
-// RecentMessages 概览页的「最近消息」，按登录者过滤。
+// RecentMessages 概览页的「最近消息」。uid = 0 表示全站，理由同 Overview。
 func (a *Admin) RecentMessages(uid int64, limit int) ([]MessageRow, error) {
+	mine, args := "", []any{}
+	if uid != 0 {
+		mine = " AND m.user_id=?"
+		args = append(args, uid)
+	}
+	args = append(args, limit)
 	var out []MessageRow
 	err := a.d.Engine().SQL(`
 		SELECT m.id, m.uid, m.user_id, m.channel_id, m.type, m.title, m.summary, m.created_at, m.read_at,
 		       `+pushCounts+`,
-		       (SELECT meta FROM channel c WHERE c.id=m.channel_id) AS meta
-		FROM message m WHERE m.user_id=? AND m.deleted_at=0
-		ORDER BY m.id DESC LIMIT ?`, uid, limit).Find(&out)
+		       (SELECT meta FROM channel c WHERE c.id=m.channel_id) AS meta,
+		       (SELECT name FROM user u WHERE u.id=m.user_id) AS owner
+		FROM message m WHERE m.deleted_at=0`+mine+`
+		ORDER BY m.id DESC LIMIT ?`, args...).Find(&out)
 	return out, err
 }
 
@@ -268,22 +301,46 @@ type MemberRow struct {
 	Messages    int64  `xorm:"'msgs'"`
 }
 
-// Members 成员列表。q 按名字模糊匹配，total 是匹配到的总数。
-func (a *Admin) Members(q string, limit, offset int) (rows []MemberRow, total int64, err error) {
+// MemberFilter 成员列表的条件。
+//
+// Cursor 与 Offset 二选一：JSON 接口走游标，服务端直出的那个分页器还在用
+// offset。offset 会静默丢行——翻页时有人注册，第二页就跳过一行，而翻页的人
+// 什么都看不出来；所以新的那套不再用它。
+type MemberFilter struct {
+	Query  string
+	Cursor int64 // u.id > Cursor
+	Offset int
+	Limit  int
+}
+
+// Members 成员列表。total 是匹配到的总数，不是全表总数——分页器靠它算页数。
+func (a *Admin) Members(f MemberFilter) (rows []MemberRow, total int64, err error) {
 	where, args := "", []any{}
-	if q != "" {
+	if f.Query != "" {
 		where = " WHERE u.name LIKE ?"
-		args = append(args, "%"+q+"%")
+		args = append(args, "%"+f.Query+"%")
 	}
 	if _, err = a.d.Engine().SQL("SELECT COUNT(*) FROM user u"+where, args...).Get(&total); err != nil {
 		return nil, 0, err
+	}
+	if f.Cursor > 0 {
+		if where == "" {
+			where = " WHERE u.id>?"
+		} else {
+			where += " AND u.id>?"
+		}
+		args = append(args, f.Cursor)
 	}
 	sql := `SELECT u.id, u.name, u.role, u.status, u.last_login_at, u.created_at, u.unlimited,
 	          (SELECT COUNT(*) FROM device d WHERE d.user_id=u.id) AS devices,
 	          (SELECT COUNT(*) FROM channel c WHERE c.user_id=u.id) AS channels,
 	          (SELECT COUNT(*) FROM message m WHERE m.user_id=u.id AND m.deleted_at=0) AS msgs
-	        FROM user u` + where + " ORDER BY u.id LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	        FROM user u` + where + " ORDER BY u.id LIMIT ?"
+	args = append(args, f.Limit)
+	if f.Cursor == 0 && f.Offset > 0 {
+		sql += " OFFSET ?"
+		args = append(args, f.Offset)
+	}
 	err = a.d.Engine().SQL(sql, args...).Find(&rows)
 	return rows, total, err
 }

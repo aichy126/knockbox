@@ -137,6 +137,23 @@ func Router(r *gin.Engine, s *Server) {
 	admin.POST("/admin/account/password", s.adminPasswordSave)
 	admin.POST("/admin/users/:id/unlimited", s.adminUserUnlimited)
 
+	// ── 后台自用的 JSON 接口 ──────────────────────────────
+	//
+	// 【不是公开契约】：/api/v1 才是对外承诺的那一套，这一组只服务本仓库自带的
+	// 后台界面，会随版本改动。鉴权与上面那批页面共用同一个 AdminAuth。
+	//
+	// 路径里第二段 api 是静态串，和 messages / users / channels 那几条不冲突。
+	admin.GET("/admin/api/me", s.adminMe)
+	admin.GET("/admin/api/overview", s.adminAPIOverview)
+	admin.GET("/admin/api/members", s.adminAPIMembers)
+	admin.GET("/admin/api/members/:id", s.adminAPIMember)
+	admin.GET("/admin/api/channels/:id", s.adminAPIChannel)
+	admin.GET("/admin/api/channels/:id/messages", s.adminAPIChannelMessages)
+	admin.GET("/admin/api/messages", s.adminAPIMessages)
+	admin.GET("/admin/api/messages/:uid", s.adminAPIMessage)
+	admin.GET("/admin/api/pair/targets", s.adminAPIPairTargets)
+	admin.GET("/admin/api/settings", s.adminAPISettings)
+
 	// 配对【之前】就能调：app 填完服务器地址先探一下，地址填错能立刻报错，
 	// 而不是卡在「配对失败」让人分不清是地址错了还是配对码错了。
 	r.GET("/api/v1/server", s.serverInfo)

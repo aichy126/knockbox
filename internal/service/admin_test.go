@@ -47,7 +47,7 @@ func TestAdminMembersCountsBelongings(t *testing.T) {
 	mustSend(t, d, ch, SendInput{Title: "二"})
 	mustMember(t, d, "另一个人")
 
-	rows, total, err := a.Members("", 50, 0)
+	rows, total, err := a.Members(MemberFilter{Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestAdminMembersSearchAndPaging(t *testing.T) {
 	mustMember(t, d, "张三")
 	mustMember(t, d, "张四")
 
-	rows, total, err := a.Members("张", 50, 0)
+	rows, total, err := a.Members(MemberFilter{Query: "张", Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,11 +93,11 @@ func TestAdminMembersSearchAndPaging(t *testing.T) {
 		t.Fatalf("搜「张」应当命中 2 个，得到 total=%d len=%d", total, len(rows))
 	}
 	// total 是【匹配到的】总数，不是全表总数——分页器靠它算页数
-	if _, total, _ = a.Members("不存在的名字", 50, 0); total != 0 {
+	if _, total, _ = a.Members(MemberFilter{Query: "不存在的名字", Limit: 50}); total != 0 {
 		t.Errorf("搜不到时 total 应当是 0，得到 %d", total)
 	}
 	// offset 生效
-	rows, _, _ = a.Members("张", 1, 1)
+	rows, _, _ = a.Members(MemberFilter{Query: "张", Limit: 1, Offset: 1})
 	if len(rows) != 1 {
 		t.Fatalf("limit=1 offset=1 应当返回 1 行，得到 %d", len(rows))
 	}

@@ -200,6 +200,12 @@ person maintaining them reviews in Chinese. Nothing is locked behind them — ev
 action there is also available from the CLI and the HTTP API, both of which are
 English.
 
+**`/admin/api/*` is not a public contract.** `/api/v1` is: sending, and the endpoints
+the iOS app uses. Everything under `/admin/api/` exists to serve the admin interface
+that ships in this repository, shares its session cookie, and will change shape
+whenever that interface does. Do not build against it — if you want to script this
+server, `/api/v1` and the CLI are the supported ways, and both are documented above.
+
 **Channel tokens are stored in plaintext.** The app shows you a ready-to-paste `curl`
 line, which hashing would make impossible. They are write-only credentials scoped to
 one channel, `last_used_at`/`ip` are recorded, and a channel can be rotated or deleted
