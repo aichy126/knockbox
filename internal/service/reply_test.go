@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"strings"
 	"sync"
 	"testing"
@@ -156,8 +157,10 @@ func TestReplyRejectedAfterDeadline(t *testing.T) {
 	if err == nil {
 		t.Fatal("过了时限还能回复")
 	}
-	if !strings.Contains(err.Error(), "时限") {
-		t.Errorf("错误里要说清是时限过了，用户才知道不是自己点错: %v", err)
+	// 断言的是 code 而不是措辞：句子按用户的语言渲染，会随语料变；
+	// 而「他撞上的是哪一种失败」不该变。
+	if ue, ok := uierr.As(err); !ok || ue.Code != uierr.ReplyExpired {
+		t.Errorf("应当是 %s，得到 %v", uierr.ReplyExpired, err)
 	}
 	// 关键：过期的回复【不能】排出回调。排了的话发送方会在自己早已走完默认分支之后，
 	// 收到一个迟到的、相反的答案。

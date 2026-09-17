@@ -81,6 +81,13 @@
     "pair.not_found": "This pairing code does not exist.",
     "pair.too_fast": "Too many pairing attempts. Try again in a minute.",
     "pair.used": "This pairing code has already been used.",
+    "reply.already_replied": "Someone already replied to this.",
+    "reply.bad_choice": "That option is not one of the choices. Update the app and try again.",
+    "reply.bad_number": "That is not a valid number.",
+    "reply.empty": "A reply cannot be empty.",
+    "reply.expired": "The reply window has closed; this answer was not sent.",
+    "reply.message_gone": "This message is no longer there.",
+    "reply.not_open": "This message does not take a reply.",
     "reply.out_of_range": "Pick a value between %g and %g.",
     "send.too_fast": "Sending too fast. Slow down and try again.",
     "session.invalid": "This device is no longer paired. Pair it again."

@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/aichy126/knockbox/internal/uierr"
 	"math"
@@ -24,18 +23,11 @@ func NewReply(d *dao.DAO) *Reply { return &Reply{d: d} }
 // 它要进回调的 JSON、也要在界面上显示，不是正文，不需要很长。
 const replyMaxRunes = 1000
 
-// 这些说法会原样显示给用户，所以写成「发生了什么 + 还能做什么」。
+// 这些会显示在用户眼前——他刚在 app 里点完回复。所以给 code 不给句子：
+// 句子按他的语言在 api 层渲染，措辞是「发生了什么 + 还能做什么」。
+//
 // 分类依据是「用户的下一步不同」：过期了只能作罢，别人回过了只需知道结果，
-// 选项不对是客户端的 bug（用户自己无能为力，但得知道不是白点了）。
-const (
-	errReplyNotFound  = "这条消息不在了"
-	errReplyNotOpen   = "这条消息不能回复"
-	errReplyExpired   = "回复时限已过，这次回复没有送出"
-	errReplyDone      = "已经回复过了"
-	errReplyBadChoice = "这个选项不在可选范围里，请更新到最新版本再试"
-	errReplyBadNumber = "这不是一个有效的数值"
-	errReplyEmpty     = "回复内容不能为空"
-)
+// 选项不对是客户端的 bug（他自己无能为力，但得知道不是白点了）。
 
 // ReplyResult 回复成功后返回给客户端的。
 type ReplyResult struct {
@@ -69,10 +61,10 @@ func (r *Reply) Submit(userID int64, uid, text string) (*ReplyResult, error) {
 		// 归属没查到和消息不存在共用一句：对这个设备来说下一步都一样，
 		// 而分开报等于把「这个 uid 存在」告诉一个无权知道的人。
 		if !has || msg.DeletedAt != 0 {
-			return errors.New(errReplyNotFound)
+			return uierr.New(uierr.ReplyNotFound)
 		}
 		if !msg.Replyable() {
-			return errors.New(errReplyNotOpen)
+			return uierr.New(uierr.ReplyNotOpen)
 		}
 		if msg.Replied() {
 			// 已经回过时把原来的答案一起带回去：另一台设备回的，
@@ -85,7 +77,7 @@ func (r *Reply) Submit(userID int64, uid, text string) (*ReplyResult, error) {
 		// 客户端自己判一次是为了不让用户白点（按钮该灰掉），但那只是显示；
 		// 真正的判定必须在这里，否则改一下手机时间就能绕过去。
 		if msg.ReplyExpired(now) {
-			return errors.New(errReplyExpired)
+			return uierr.New(uierr.ReplyExpired)
 		}
 
 		spec, err := replySpecOf(msg.Extra)
@@ -125,7 +117,7 @@ func (r *Reply) Submit(userID int64, uid, text string) (*ReplyResult, error) {
 			if _, err := sess.ID(msg.Id).Get(&cur); err == nil && cur.Replied() {
 				return &ErrAlreadyReplied{Reply: cur.Reply, At: cur.RepliedAt}
 			}
-			return errors.New(errReplyDone)
+			return uierr.New(uierr.ReplyDone)
 		}
 
 		if err := enqueueHook(sess, &msg, text, now); err != nil {
@@ -149,7 +141,7 @@ type ErrAlreadyReplied struct {
 	At    int64
 }
 
-func (e *ErrAlreadyReplied) Error() string { return errReplyDone }
+func (e *ErrAlreadyReplied) Error() string { return uierr.ReplyDone }
 
 // replySpecOf 从 extra 里取回复规格。
 func replySpecOf(raw string) (*replyView, error) {
@@ -160,7 +152,7 @@ func replySpecOf(raw string) (*replyView, error) {
 	if e.Reply == nil {
 		// 有回调地址却没有规格，说明这行数据被写坏了。
 		// 当成「不能回」而不是放行：不知道该收什么形态的答案时，收下比拒绝更糟。
-		return nil, errors.New(errReplyNotOpen)
+		return nil, uierr.New(uierr.ReplyNotOpen)
 	}
 	return e.Reply, nil
 }
@@ -184,11 +176,11 @@ func validateReplyText(spec *replyView, text *string) error {
 				return nil
 			}
 		}
-		return errors.New(errReplyBadChoice)
+		return uierr.New(uierr.ReplyBadChoice)
 
 	case models.ReplyText:
 		if *text == "" {
-			return errors.New(errReplyEmpty)
+			return uierr.New(uierr.ReplyEmpty)
 		}
 		*text = truncateRunes(*text, replyMaxRunes)
 		return nil
@@ -200,7 +192,7 @@ func validateReplyText(spec *replyView, text *string) error {
 		return validateNumber(spec, text)
 
 	default:
-		return errors.New(errReplyNotOpen)
+		return uierr.New(uierr.ReplyNotOpen)
 	}
 }
 
@@ -211,7 +203,7 @@ func validateReplyText(spec *replyView, text *string) error {
 func validateMulti(spec *replyView, text *string) error {
 	var picked []string
 	if err := json.Unmarshal([]byte(*text), &picked); err != nil {
-		return errors.New(errReplyBadChoice)
+		return uierr.New(uierr.ReplyBadChoice)
 	}
 	allowed := make(map[string]bool, len(spec.Options))
 	for _, o := range spec.Options {
@@ -223,7 +215,7 @@ func validateMulti(spec *replyView, text *string) error {
 	out := make([]string, 0, len(picked))
 	for _, p := range picked {
 		if !allowed[p] {
-			return errors.New(errReplyBadChoice)
+			return uierr.New(uierr.ReplyBadChoice)
 		}
 		seen[p] = true
 	}
@@ -248,14 +240,14 @@ func validateMulti(spec *replyView, text *string) error {
 func validateNumber(spec *replyView, text *string) error {
 	v, err := strconv.ParseFloat(strings.TrimSpace(*text), 64)
 	if err != nil {
-		return errors.New(errReplyBadNumber)
+		return uierr.New(uierr.ReplyBadNumber)
 	}
 	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return errors.New(errReplyBadNumber)
+		return uierr.New(uierr.ReplyBadNumber)
 	}
 	if spec.Min == nil || spec.Max == nil || spec.Step == nil || *spec.Step <= 0 {
 		// 规格不全，说明这行数据写坏了。当成不能回，而不是放行一个没约束的数。
-		return errors.New(errReplyNotOpen)
+		return uierr.New(uierr.ReplyNotOpen)
 	}
 	if v < *spec.Min || v > *spec.Max {
 		return uierr.New(uierr.ReplyOutOfRange, *spec.Min, *spec.Max)
