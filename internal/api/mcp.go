@@ -177,10 +177,10 @@ func (s *Server) mcpKnock(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 	}
 	in, err := mcpSendInput(req)
 	if err != nil {
-		return mcp.NewToolResultError("参数解析失败: " + err.Error()), nil
+		return mcp.NewToolResultError("cannot parse the arguments: " + err.Error()), nil
 	}
 	if in.Title == "" && in.Body == "" && len(in.Items) == 0 {
-		return mcp.NewToolResultError("title 和 body 至少要有一个"), nil
+		return mcp.NewToolResultError("title and body cannot both be empty"), nil
 	}
 	if !s.sendLimit.Allow(ch.Token) {
 		return mcp.NewToolResultError(errSendTooFast), nil
