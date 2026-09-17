@@ -35,7 +35,7 @@ type readBody struct {
 func (s *Server) markRead(c *gin.Context) {
 	var b readBody
 	if err := c.ShouldBindJSON(&b); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	sync := service.NewSync(s.DAO)
@@ -65,7 +65,7 @@ func (s *Server) deleteMessages(c *gin.Context) {
 		UIDs []string `json:"uids"`
 	}
 	if err := c.ShouldBindJSON(&b); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	n, err := service.NewSync(s.DAO).Delete(middleware.UserID(c), b.UIDs)

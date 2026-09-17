@@ -26,7 +26,7 @@ func ULID() string {
 	buf[4] = byte(ms >> 8)
 	buf[5] = byte(ms)
 	if _, err := rand.Read(buf[6:]); err != nil {
-		panic("idgen: 系统熵源不可用: " + err.Error())
+		panic("idgen: the system entropy source is unavailable: " + err.Error())
 	}
 
 	out := make([]byte, 26)
@@ -54,7 +54,7 @@ func ULID() string {
 func Token(prefix string) string {
 	var buf [32]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		panic("idgen: 系统熵源不可用: " + err.Error())
+		panic("idgen: the system entropy source is unavailable: " + err.Error())
 	}
 	return prefix + encode(buf[:])
 }
@@ -66,7 +66,7 @@ func Token(prefix string) string {
 func PairCode() string {
 	var buf [8]byte
 	if _, err := rand.Read(buf[:]); err != nil {
-		panic("idgen: 系统熵源不可用: " + err.Error())
+		panic("idgen: the system entropy source is unavailable: " + err.Error())
 	}
 	n := binary.BigEndian.Uint64(buf[:])
 	out := make([]byte, 8)

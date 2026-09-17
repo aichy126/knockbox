@@ -59,7 +59,7 @@ func Run(engine *xorm.Engine) error {
 			continue
 		}
 		if err := apply(engine, m); err != nil {
-			return fmt.Errorf("迁移 %04d_%s 失败: %w", m.version, m.name, err)
+			return fmt.Errorf("migration %04d_%s failed: %w", m.version, m.name, err)
 		}
 	}
 	return nil
@@ -105,12 +105,12 @@ func bootstrap(engine *xorm.Engine) error {
 	for pragma, ok := range hard {
 		v, err := scalar(engine, "PRAGMA "+pragma)
 		if err != nil {
-			return fmt.Errorf("读取 PRAGMA %s 失败: %w", pragma, err)
+			return fmt.Errorf("cannot read PRAGMA %s: %w", pragma, err)
 		}
 		if !ok(v) {
 			return fmt.Errorf(
-				"PRAGMA %s = %q 不符合要求，DSN 里的 _pragma= 写漏了。"+
-					"完整的串见 config.toml.example", pragma, v)
+				"PRAGMA %s = %q is not what it must be; a _pragma= is missing from the DSN. "+
+					"The full string is in config.toml.example", pragma, v)
 		}
 	}
 
@@ -118,7 +118,7 @@ func bootstrap(engine *xorm.Engine) error {
 	if v, err := scalar(engine, "PRAGMA auto_vacuum"); err == nil && v != "2" {
 		log.Warn("auto_vacuum is off: space from deleted rows is not reclaimed automatically",
 			log.Any("value", v),
-			log.Any("fix", "新库请在 DSN 里加 _pragma=auto_vacuum(incremental)；已有的库需要整库 VACUUM"))
+			log.Any("fix", "add _pragma=auto_vacuum(incremental) to the DSN of a new database; an existing one needs a full VACUUM"))
 	}
 	return nil
 }
@@ -129,7 +129,7 @@ func scalar(engine *xorm.Engine, sql string) (string, error) {
 		return "", err
 	}
 	if len(rows) == 0 {
-		return "", fmt.Errorf("%s 无返回", sql)
+		return "", fmt.Errorf("%s returned nothing", sql)
 	}
 	for _, v := range rows[0] {
 		return v, nil

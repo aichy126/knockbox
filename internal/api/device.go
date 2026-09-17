@@ -11,7 +11,7 @@ import (
 func (s *Server) pair(c *gin.Context) {
 	var in service.RegisterInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	out, err := service.NewDevice(s.DAO).Pair(in, s.Name, s.Version)
@@ -33,7 +33,7 @@ type pushTokenBody struct {
 func (s *Server) pushToken(c *gin.Context) {
 	var b pushTokenBody
 	if err := c.ShouldBindJSON(&b); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	dev := middleware.Device(c)
