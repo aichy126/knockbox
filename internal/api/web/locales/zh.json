@@ -70,6 +70,9 @@
   "err_issue_failed": "签发配对码失败: ",
   "err_q_r_failed": "生成二维码失败: ",
   "user_errors": {
+    "channel.bad_level": "%q 不是合法的打扰级别。",
+    "channel.exists": "已经有一个 id 是 %s 的频道了。",
+    "channel.not_found": "这个频道已经不存在了。",
     "file.gone": "附件内容已不在服务器上。",
     "file.link_invalid": "附件链接无效或已过期。",
     "join.too_fast": "接入请求过于频繁，请稍后再试。",

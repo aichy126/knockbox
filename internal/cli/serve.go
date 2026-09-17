@@ -16,7 +16,7 @@ import (
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "serve",
-		Short:   "启动推送服务",
+		Short:   "Start the server",
 		Example: "  knockbox serve -c /etc/knockbox/config.toml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, engine, err := openApp()
@@ -24,7 +24,7 @@ func newServeCmd() *cobra.Command {
 				return err
 			}
 			ver, _ := migrate.Applied(engine)
-			log.Info("schema 就绪", log.Any("migration_version", ver))
+			log.Info("schema ready", log.Any("migration_version", ver))
 
 			conf := app.Conf
 			d := dao.New(engine)
@@ -82,7 +82,7 @@ func newServeCmd() *cobra.Command {
 				}
 				// 把当前跑在哪个环境打出来：忘了 .Production() 的表现是
 				// 400 BadDeviceToken，一个指向错误方向的错误码，这一行能省很多时间。
-				log.Info("APNs 就绪",
+				log.Info("APNs ready",
 					log.Any("topic", conf.GetString("apns.topic")),
 					log.Any("environments", cl.Environments()))
 
@@ -95,7 +95,7 @@ func newServeCmd() *cobra.Command {
 				go p.Run(app.GetShutdownContext())
 				notify = p.Notify
 			} else {
-				log.Warn("APNs 已关闭，消息只落库不推送")
+				log.Warn("APNs is off: messages are stored but not pushed")
 			}
 
 			// 回复的回调投递。

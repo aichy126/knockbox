@@ -26,22 +26,22 @@ func readPassword(flagValue string, confirm bool) (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 		if err != nil && line == "" {
-			return "", errors.New("从标准输入读密码失败（要交互式输入请在终端里运行）")
+			return "", errors.New("cannot read a password from stdin (run this in a terminal to type one)")
 		}
 		return strings.TrimRight(line, "\r\n"), nil
 	}
 
-	pw, err := promptHidden("密码: ")
+	pw, err := promptHidden("Password: ")
 	if err != nil {
 		return "", err
 	}
 	if confirm {
-		again, err := promptHidden("再输一次: ")
+		again, err := promptHidden("Again: ")
 		if err != nil {
 			return "", err
 		}
 		if pw != again {
-			return "", errors.New("两次输入不一致")
+			return "", errors.New("the two entries do not match")
 		}
 	}
 	return pw, nil
@@ -52,7 +52,7 @@ func promptHidden(prompt string) (string, error) {
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
 	fmt.Fprintln(os.Stderr)
 	if err != nil {
-		return "", fmt.Errorf("读取密码失败: %w", err)
+		return "", fmt.Errorf("cannot read the password: %w", err)
 	}
 	return string(b), nil
 }
