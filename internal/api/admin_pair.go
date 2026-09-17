@@ -9,6 +9,7 @@ import (
 	"github.com/aichy126/knockbox/internal/api/web"
 	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -30,29 +31,25 @@ func (s *Server) adminPairIssue(c *gin.Context) {
 	target := c.PostForm("user")
 	name := strings.TrimSpace(c.PostForm("new_name"))
 
-	var uid int64
 	// 名字能对上就给那个人，对不上就当是要新建一个——
 	// 让用户先去别处建人、再回来选，是没必要的一次往返。
 	if uid := s.admin().MemberIdByName(strings.TrimSpace(target)); uid != 0 {
 		s.issueFor(c, uid)
 		return
 	}
-	if true {
-		if name == "" {
-			name = strings.TrimSpace(target)
-		}
-		if name == "" {
-			s.renderAdminPair(c, nil, "填一个成员名字：已有的会直接用，没有的会新建。")
-			return
-		}
-		u, err := s.admin().CreateMember(name)
-		if err != nil {
-			s.renderAdminPair(c, nil, "建成员失败："+err.Error())
-			return
-		}
-		uid = u.Id
+	if name == "" {
+		name = strings.TrimSpace(target)
 	}
-	s.issueFor(c, uid)
+	if name == "" {
+		s.renderAdminPair(c, nil, s.userText(c, uierr.PairNoTarget))
+		return
+	}
+	u, err := s.admin().CreateMember(name)
+	if err != nil {
+		s.renderAdminPair(c, nil, "建成员失败："+err.Error())
+		return
+	}
+	s.issueFor(c, u.Id)
 }
 
 func (s *Server) issueFor(c *gin.Context, uid int64) {

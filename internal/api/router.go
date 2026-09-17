@@ -153,6 +153,13 @@ func Router(r *gin.Engine, s *Server) {
 	admin.GET("/admin/api/messages/:uid", s.adminAPIMessage)
 	admin.GET("/admin/api/pair/targets", s.adminAPIPairTargets)
 	admin.GET("/admin/api/settings", s.adminAPISettings)
+	admin.POST("/admin/api/logout", s.adminAPILogout)
+	admin.POST("/admin/api/members/:id/unlimited", s.adminAPIUnlimited)
+	admin.POST("/admin/api/devices/:id/revoke", s.adminAPIRevokeDevice)
+	admin.POST("/admin/api/channels/:id/purge", s.adminAPIPurge)
+	admin.POST("/admin/api/pair", s.adminAPIPairIssue)
+	admin.PUT("/admin/api/settings", s.adminAPISettingsSave)
+	admin.POST("/admin/api/account/password", s.adminAPIPassword)
 
 	// 配对【之前】就能调：app 填完服务器地址先探一下，地址填错能立刻报错，
 	// 而不是卡在「配对失败」让人分不清是地址错了还是配对码错了。
