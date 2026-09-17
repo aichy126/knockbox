@@ -2,7 +2,6 @@ package service
 
 import (
 	"github.com/aichy126/knockbox/internal/uierr"
-	"strings"
 	"time"
 
 	"github.com/aichy126/knockbox/internal/dao"
@@ -59,6 +58,11 @@ func (s *Channel) Create(userID int64, in ChannelInput) (*models.Channel, error)
 	if in.Muted != nil && *in.Muted {
 		ch.Muted = 1
 	}
+	// ChannelInput 收了 mute_until，建频道时却一直没读它——传进来的值被静默丢掉，
+	// 调用方以为设上了。改法和其余几个字段一致。
+	if in.MuteUntil != nil {
+		ch.MuteUntil = *in.MuteUntil
+	}
 	if in.Sound != nil {
 		ch.Sound = *in.Sound
 	}
@@ -87,7 +91,7 @@ func (s *Channel) Create(userID int64, in ChannelInput) (*models.Channel, error)
 	return ch, nil
 }
 
-// Update 只允许改四样。
+// Update 只允许改这几样。
 // Meta 是不透明的，服务端不解析它的内容——名字改成什么是 app 的事。
 func (s *Channel) Update(userID int64, id string, in ChannelInput) (*models.Channel, error) {
 	if in.Level != nil && !validLevel(*in.Level) {
@@ -102,34 +106,30 @@ func (s *Channel) Update(userID int64, id string, in ChannelInput) (*models.Chan
 		if !has {
 			return ErrChannelNotFound
 		}
-		sets, args := []string{"updated_at = ?"}, []any{time.Now().Unix()}
-		if in.Meta != nil {
-			sets = append(sets, "meta = ?")
-			args = append(args, *in.Meta)
-		}
+		// 语句是常量，只有值在变。以前是按「哪些字段给了」拼 SET 子句，
+		// 那样语句本身成了运行时才知道的字符串——即使拼进去的全是字面量，
+		// 读的人（和静态分析）都得把整段逻辑追一遍才能确认没有注入。
+		//
+		// COALESCE(?, 列) 表达的正是这个接口本来的语义：没给的字段保持原值。
+		// nil 进去就是 SQL NULL，于是取原值；空串不是 NULL，所以「清空 sound」
+		// 这种意图仍然传得到。
+		var muted any
 		if in.Muted != nil {
 			v := 0
 			if *in.Muted {
 				v = 1
 			}
-			sets = append(sets, "muted = ?")
-			args = append(args, v)
+			muted = v
 		}
-		if in.MuteUntil != nil {
-			sets = append(sets, "mute_until = ?")
-			args = append(args, *in.MuteUntil)
-		}
-		if in.Sound != nil {
-			sets = append(sets, "sound = ?")
-			args = append(args, *in.Sound)
-		}
-		if in.Level != nil {
-			sets = append(sets, "level = ?")
-			args = append(args, *in.Level)
-		}
-		args = append(args, ch.Id)
-		// xorm 的 Exec 签名是 (...any)，SQL 也是其中一个元素，所以要整体拼进去。
-		_, err = sess.Exec(append([]any{"UPDATE channel SET " + strings.Join(sets, ", ") + " WHERE id = ?"}, args...)...)
+		_, err = sess.Exec(`UPDATE channel SET
+			updated_at = ?,
+			meta       = COALESCE(?, meta),
+			muted      = COALESCE(?, muted),
+			mute_until = COALESCE(?, mute_until),
+			sound      = COALESCE(?, sound),
+			level      = COALESCE(?, level)
+			WHERE id = ?`,
+			time.Now().Unix(), in.Meta, muted, in.MuteUntil, in.Sound, in.Level, ch.Id)
 		return err
 	})
 	if err != nil {
