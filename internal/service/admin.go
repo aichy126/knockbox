@@ -194,13 +194,12 @@ func (a *Admin) RecentMessages(uid int64, limit int) ([]MessageRow, error) {
 
 // Message 一条消息的详情，连同它所属的频道。
 //
-// 【按 user_id 过滤是现状，不是想要的样子】：列表页刻意跨全站，详情页却只认
-// 自己的，于是从列表点进别人的消息会落到「这条消息不存在」。这是 #15 要修的
-// 三个缺陷之一，本次只是把语句原样抬上来，修复在下一个 PR——
-// 把「搬」和「改」混在一个 diff 里，reviewer 就得逐行分辨哪一行是哪件事。
-func (a *Admin) Message(uid string, ownerId int64) (*models.Message, *models.Channel, error) {
+// 【不按 user_id 过滤】：消息搜索页刻意跨全站（管理界面的定位就是看到这台服务器上
+// 的全部消息），详情页若只认自己的，从列表点进别人的消息就是一条死链——列出来了、
+// 点不开。权限模型由 middleware.AdminAuth 的包注释定义，它说的就是全权限。
+func (a *Admin) Message(uid string) (*models.Message, *models.Channel, error) {
 	var m models.Message
-	ok, err := a.d.Engine().Where("uid=? AND user_id=?", uid, ownerId).Get(&m)
+	ok, err := a.d.Engine().Where("uid=?", uid).Get(&m)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -347,10 +346,26 @@ func (a *Admin) CreateMember(name string) (*models.User, error) {
 
 // SetUnlimited 配额豁免。
 //
-// 【错误被吞掉是现状】：DB 出错和「这个 id 根本不存在」在界面上都表现为
-// 一次成功的重定向。同样是 #15 要修的缺陷之一，修复在下一个 PR。
-func (a *Admin) SetUnlimited(id string, on int) {
-	_, _ = a.d.Engine().Exec("UPDATE user SET unlimited=? WHERE id=?", on, id)
+// 影响 0 行【不是成功】：成员可能已经被删了，或者这是一个开着的旧标签页。
+// 原来这里是 `_, _ = Exec(...)` 然后无条件重定向，于是 DB 出错、id 不存在、
+// 真的改成功了，三种结果在界面上长得一模一样。
+//
+// 两种失败分开：DB 真错了是内部错误（调用方记日志、当 500），
+// 影响 0 行是一个用户能理解的失败，给他一个 code。
+func (a *Admin) SetUnlimited(id int64, on bool) error {
+	v := 0
+	if on {
+		v = 1
+	}
+	res, err := a.d.Engine().Exec("UPDATE user SET unlimited=?, updated_at=? WHERE id=?",
+		v, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return uierr.New(uierr.MemberNotFound)
+	}
+	return nil
 }
 
 // ── 频道 ──────────────────────────────────────────────
@@ -439,10 +454,31 @@ func (a *Admin) MemberDevices(uid int64) ([]DeviceRow, error) {
 	return out, err
 }
 
-// RevokeDevice 后台注销一台设备。
+// RevokeDevice 后台注销一台设备，返回它属于谁（注销完要回那个成员的详情页）。
 //
-// 【三处都是现状，都要在下一个 PR 里修】：硬删而不是软登出（app 侧走的是
-// Device.Logout）、按当前登录者过滤（于是删别人的设备静默无操作）、错误被吞掉。
-func (a *Admin) RevokeDevice(deviceID string, ownerId int64) {
-	_, _ = a.d.Engine().Exec("DELETE FROM device WHERE id=? AND user_id=?", deviceID, ownerId)
+// 走的是和 app 侧 DELETE /api/v1/devices/:uuid 同一条路——Device.Logout，
+// 软登出而不是删行。硬删会带来两件看不见的坏事：
+//
+//   - push_log.device_id 悬空，pushLogTable 的 LEFT JOIN device 从此显示空名字，
+//     那台手机的历史投递记录在界面上就消失了；
+//   - middleware.DeviceAuth 专门为 DeviceLoggedOut 留的那句「这台设备被登出了，
+//     请重新配对」失效，被删掉的设备再来只拿到泛泛的 invalid device token。
+//
+// 同一个动作在两条路径上有两种物理效果，是这个仓库反复防的那类不一致。
+//
+// 【不按当前管理员过滤】：后台是全权限的，成员详情页上那颗「注销」按钮
+// 点的就是别人的设备，带上 user_id=<登录者> 的话它永远静默无效。
+func (a *Admin) RevokeDevice(deviceID int64) (owner int64, err error) {
+	var dev models.Device
+	ok, err := a.d.Engine().ID(deviceID).Get(&dev)
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, uierr.New(uierr.DeviceNotFound)
+	}
+	if err := NewDevice(a.d).Logout(dev.UserId, dev.UUID); err != nil {
+		return dev.UserId, uierr.Wrap(err, uierr.DeviceNotFound)
+	}
+	return dev.UserId, nil
 }
