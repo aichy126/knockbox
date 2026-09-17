@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/api/web"
 	"github.com/aichy126/knockbox/internal/library/bytesize"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -21,13 +23,13 @@ import (
 // 把它们做成三个平级列表，等于让用户自己在脑子里做关联查询。
 func (s *Server) adminUser(c *gin.Context) {
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
-	var u models.User
-	ok, err := s.DAO.Engine().ID(id).Get(&u)
-	if err != nil || !ok {
+	member, err := s.admin().Member(id)
+	if err != nil {
 		s.shell(c, "users", []web.Crumb{web.C("成员", "/admin/users"), web.C("未找到")},
-			web.Card("", "", web.Empty("这个成员不存在。")))
+			web.Card("", "", web.Empty(s.userText(c, uierr.MemberNotFound))))
 		return
 	}
+	u := *member
 	usage := s.quota().Usage(u.Id)
 
 	var b strings.Builder
@@ -61,11 +63,10 @@ func (s *Server) adminUser(c *gin.Context) {
 }
 
 func (s *Server) channelTable(uid int64) string {
-	rows, _ := s.DAO.Engine().QueryString(`
-		SELECT c.id, c.meta, c.muted, c.mute_until, c.sound, c.level,
-		       (SELECT COUNT(*) FROM message m WHERE m.channel_id=c.id AND m.deleted_at=0) AS n,
-		       (SELECT MAX(created_at) FROM message m WHERE m.channel_id=c.id) AS last
-		FROM channel c WHERE c.user_id=? ORDER BY c.created_at`, uid)
+	rows, err := s.admin().MemberChannels(uid)
+	if err != nil {
+		log.Error("admin: member channels failed", log.Any("error", err.Error()))
+	}
 	if len(rows) == 0 {
 		return web.Empty("还没有频道。频道在 app 里创建。")
 	}
@@ -74,30 +75,28 @@ func (s *Server) channelTable(uid int64) string {
 	t.WriteString(`<table><thead><tr><th style="padding-left:16px">名字</th><th>消息</th><th>最近</th>` +
 		`<th>铃声</th><th>打扰级别</th><th>状态</th></tr></thead><tbody>`)
 	for _, r := range rows {
-		last, _ := strconv.ParseInt(r["last"], 10, 64)
-		mu, _ := strconv.ParseInt(r["mute_until"], 10, 64)
 		state := `<span class="badge ok"><i></i>正常</span>`
-		if r["muted"] != "0" {
+		if r.Muted != 0 {
 			state = `<span class="badge muted"><i></i>一直静音</span>`
-		} else if mu > now {
-			state = `<span class="badge warn"><i></i>静音至 ` + time.Unix(mu, 0).Format("15:04") + `</span>`
+		} else if r.MuteUntil > now {
+			state = `<span class="badge warn"><i></i>静音至 ` + time.Unix(r.MuteUntil, 0).Format("15:04") + `</span>`
 		}
 		fmt.Fprintf(&t, `<tr><td style="padding-left:16px;font-weight:500">`+
 			`<a href="/admin/channels/%s">%s</a></td>`+
-			`<td class="num">%s</td><td class="dim num">%s</td><td class="dim">%s</td>`+
+			`<td class="num">%d</td><td class="dim num">%s</td><td class="dim">%s</td>`+
 			`<td class="dim">%s</td><td>%s</td></tr>`,
-			web.E(r["id"]), web.E(channelName(r["meta"], r["id"])), web.E(r["n"]), ago(last),
-			web.E(r["sound"]), web.E(r["level"]), state)
+			web.E(r.Id), web.E(channelName(r.Meta, r.Id)), r.Messages, ago(r.LastMsgAt),
+			web.E(r.Sound), web.E(r.Level), state)
 	}
 	t.WriteString(`</tbody></table>`)
 	return t.String()
 }
 
 func (s *Server) deviceTable(uid int64) string {
-	rows, _ := s.DAO.Engine().QueryString(`
-		SELECT id, name, platform, model, os_version, app_version, apns_env,
-		       apns_token, last_seen_at, sync_rev
-		FROM device WHERE user_id=? ORDER BY created_at DESC`, uid)
+	rows, err := s.admin().MemberDevices(uid)
+	if err != nil {
+		log.Error("admin: member devices failed", log.Any("error", err.Error()))
+	}
 	if len(rows) == 0 {
 		return web.Empty("还没有设备。点右上角配对一台。")
 	}
@@ -105,25 +104,24 @@ func (s *Server) deviceTable(uid int64) string {
 	t.WriteString(`<table><thead><tr><th style="padding-left:16px">设备</th><th>系统</th><th>app</th>` +
 		`<th>APNs</th><th>同步到</th><th>最后活跃</th><th></th></tr></thead><tbody>`)
 	for _, r := range rows {
-		seen, _ := strconv.ParseInt(r["last_seen_at"], 10, 64)
 		push := `<span class="badge err"><i></i>收不到推送</span>`
-		if r["apns_token"] != "" {
+		if r.CanPush() {
 			kind := "ok"
-			if r["apns_env"] == "sandbox" {
+			if r.APNsEnv == "sandbox" {
 				kind = "info"
 			}
-			push = fmt.Sprintf(`<span class="badge %s"><i></i>%s</span>`, kind, web.E(r["apns_env"]))
+			push = fmt.Sprintf(`<span class="badge %s"><i></i>%s</span>`, kind, web.E(r.APNsEnv))
 		}
 		fmt.Fprintf(&t, `<tr><td style="padding-left:16px;font-weight:500">%s`+
 			`<div class="dim" style="font-weight:400;font-size:12px">%s</div></td>`+
 			`<td class="dim">%s %s</td><td class="dim">%s</td><td>%s</td>`+
-			`<td class="dim num">%s</td><td class="dim">%s</td>`+
+			`<td class="dim num">%d</td><td class="dim">%s</td>`+
 			`<td style="text-align:right;padding-right:16px">`+
-			`<form class="inline" method="post" action="/admin/devices/%s/delete" `+
+			`<form class="inline" method="post" action="/admin/devices/%d/delete" `+
 			`onsubmit="return confirm('注销这台设备？它将不再收到推送，需要重新配对。')">`+
 			`<button class="btn ghost sm" type="submit">注销</button></form></td></tr>`,
-			web.E(r["name"]), web.E(r["model"]), web.E(r["platform"]), web.E(r["os_version"]),
-			web.E(r["app_version"]), push, web.E(r["sync_rev"]), ago(seen), web.E(r["id"]))
+			web.E(r.Name), web.E(r.Model), web.E(r.Platform), web.E(r.OSVersion),
+			web.E(r.AppVersion), push, r.SyncRev, ago(r.LastSeenAt), r.Id)
 	}
 	t.WriteString(`</tbody></table>`)
 	return t.String()
@@ -135,15 +133,13 @@ func (s *Server) deviceTable(uid int64) string {
 // 后台若停在「列表 → 点进去看」，同一份内容就有了两套操作方式。
 // 这里按时间正序排列、自动滚到底，与 app 保持一致。
 func (s *Server) adminChannel(c *gin.Context) {
-	var ch models.Channel
-	ok, err := s.DAO.Engine().Where("id=?", c.Param("id")).Get(&ch)
-	if err != nil || !ok {
+	channel, ownerUser, err := s.admin().Channel(c.Param("id"))
+	if err != nil {
 		s.shell(c, "users", []web.Crumb{web.C("成员", "/admin/users"), web.C("未找到")},
-			web.Card("", "", web.Empty("这个频道不存在。")))
+			web.Card("", "", web.Empty(s.userText(c, uierr.ChannelNotFound))))
 		return
 	}
-	var owner models.User
-	_, _ = s.DAO.Engine().ID(ch.UserId).Get(&owner)
+	ch, owner := *channel, *ownerUser
 	name := channelName(ch.Meta, ch.Id)
 
 	var b strings.Builder
@@ -196,13 +192,12 @@ func (s *Server) channelProps(ch *models.Channel) string {
 // channelStream 消息流。正序排、自动滚到底，和 app 里一样。
 func (s *Server) channelStream(ch *models.Channel) string {
 	const limit = 40
-	rows, _ := s.DAO.Engine().QueryString(`
-		SELECT m.id, m.uid, m.type, m.title, m.summary, m.body, m.extra, m.created_at, m.read_at,
-		       m.reply_webhook, m.reply, m.replied_at, m.reply_until,
-		       (SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id) AS total,
-		       (SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id AND p.status=1) AS ok
-		FROM message m WHERE m.channel_id=? AND m.deleted_at=0
-		ORDER BY m.id DESC LIMIT ?`, ch.Id, limit)
+	rows, err := s.admin().Messages(service.MessageFilter{
+		ChannelId: ch.Id, Limit: limit, WithBody: true,
+	})
+	if err != nil {
+		log.Error("admin: channel stream failed", log.Any("error", err.Error()))
+	}
 	if len(rows) == 0 {
 		return web.Card("", "", web.Empty("这个频道还没有消息。"))
 	}
@@ -217,13 +212,12 @@ func (s *Server) channelStream(ch *models.Channel) string {
 		web.E(ch.Id) + `">看更早的 / 搜索</a></div>`)
 	lastDay := ""
 	for _, r := range rows {
-		ts, _ := strconv.ParseInt(r["created_at"], 10, 64)
-		if d := time.Unix(ts, 0).Format("2006-01-02"); d != lastDay {
+		if d := time.Unix(r.Ctime, 0).Format("2006-01-02"); d != lastDay {
 			lastDay = d
 			b.WriteString(`<div style="text-align:center;padding:6px 0">` +
-				`<span class="badge muted">` + web.E(dayLabel(ts)) + `</span></div>`)
+				`<span class="badge muted">` + web.E(dayLabel(r.Ctime)) + `</span></div>`)
 		}
-		b.WriteString(s.messageBubble(r, ts))
+		b.WriteString(s.messageBubble(r))
 	}
 	b.WriteString(`</div>`)
 	// 落地就停在最新那条上，和 app 的 defaultScrollAnchor(.bottom) 一个意思。
@@ -247,32 +241,26 @@ func dayLabel(ts int64) string {
 }
 
 // messageBubble 一条消息，展开显示内容。
-func (s *Server) messageBubble(r map[string]string, ts int64) string {
-	title := r["title"]
-	if title == "" {
-		title = r["summary"]
-	}
+func (s *Server) messageBubble(r service.MessageRow) string {
+	title := firstNonEmpty(r.Title, r.Summary)
 	var body strings.Builder
-	switch r["type"] {
+	switch r.Type {
 	case models.TypeCard:
-		body.WriteString(cardItems(r["extra"], r["summary"]))
+		body.WriteString(cardItems(r.Extra, r.Summary))
 	case models.TypeImage, models.TypeFile:
-		if r["summary"] != "" && r["summary"] != title {
-			body.WriteString(`<div class="dim" style="margin-bottom:8px">` + web.E(r["summary"]) + `</div>`)
+		if r.Summary != "" && r.Summary != title {
+			body.WriteString(`<div class="dim" style="margin-bottom:8px">` + web.E(r.Summary) + `</div>`)
 		}
-		if uid := extraFileUID(r["extra"]); uid != "" && s.Files != nil {
+		if uid := extraFileUID(r.Extra); uid != "" && s.Files != nil {
 			body.WriteString(`<img src="` + web.E(s.Files.URL(uid, true)) +
 				`" alt="" style="max-width:100%;max-height:320px;border-radius:10px;display:block">`)
 		}
 	default:
-		txt := r["body"]
-		if txt == "" {
-			txt = r["summary"]
-		}
+		txt := firstNonEmpty(r.Body, r.Summary)
 		if txt != "" {
 			// markdown 类型才渲染；纯文本按原样保留换行，
 			// 不能把一段 shell 输出当成 markdown 去解释。
-			if r["type"] == models.TypeMarkdown {
+			if r.Type == models.TypeMarkdown {
 				body.WriteString(web.Markdown(txt))
 			} else {
 				body.WriteString(`<pre class="body">` + web.E(txt) + `</pre>`)
@@ -287,7 +275,7 @@ func (s *Server) messageBubble(r map[string]string, ts int64) string {
 	body.WriteString(replyReadonly(r))
 
 	unread := ""
-	if r["read_at"] == "0" {
+	if r.ReadAt == 0 {
 		unread = `<span class="badge info"><i></i>未读</span>`
 	}
 	return fmt.Sprintf(`<div class="card"><div class="card-b" style="padding:14px 16px">
@@ -298,8 +286,8 @@ func (s *Server) messageBubble(r map[string]string, ts int64) string {
 </div>%s
 <div style="margin-top:8px"><a class="btn ghost sm" href="/admin/messages/%s">投递记录</a></div>
 </div></div>`,
-		web.E(title), web.E(r["type"]), unread, pushBadge(r["ok"], r["total"]),
-		time.Unix(ts, 0).Format("15:04"), body.String(), web.E(r["uid"]))
+		web.E(title), web.E(r.Type), unread, pushBadge(r.PushOK, r.PushTotal),
+		time.Unix(r.Ctime, 0).Format("15:04"), body.String(), web.E(r.UID))
 }
 
 // replyReadonly 消息列表里的回复区，只读。
@@ -315,8 +303,8 @@ func (s *Server) messageBubble(r map[string]string, ts int64) string {
 // **一律不可点、不发任何请求。** 用 disabled 加 pointer-events:none 两道，
 // 而且整块没有 form、没有 JS。后台是服务器主人查看用的，不是他替用户作答的地方：
 // 能点的话一次误触就会把一个答案送进发送方的回调，而那一端分不出这是谁点的。
-func replyReadonly(r map[string]string) string {
-	if r["reply_webhook"] == "" {
+func replyReadonly(r service.MessageRow) string {
+	if r.ReplyWebhook == "" {
 		return ""
 	}
 	var e struct {
@@ -329,13 +317,12 @@ func replyReadonly(r map[string]string) string {
 			Unit    string   `json:"unit"`
 		} `json:"reply"`
 	}
-	if err := json.Unmarshal([]byte(r["extra"]), &e); err != nil || e.Reply == nil {
+	if err := json.Unmarshal([]byte(r.Extra), &e); err != nil || e.Reply == nil {
 		return ""
 	}
-	repliedAt, _ := strconv.ParseInt(r["replied_at"], 10, 64)
-	until, _ := strconv.ParseInt(r["reply_until"], 10, 64)
+	repliedAt, until := r.RepliedAt, r.ReplyUntil
 	replied := repliedAt != 0
-	raw := r["reply"]
+	raw := r.Reply
 
 	var b strings.Builder
 	// pointer-events:none 罩住整块——比逐个控件加 disabled 更难漏掉一个。
@@ -542,13 +529,16 @@ func extraFileUID(extra string) string {
 
 func (s *Server) adminChannelPurge(c *gin.Context) {
 	id := c.Param("id")
-	var ch models.Channel
-	if ok, _ := s.DAO.Engine().Where("id=?", id).Get(&ch); !ok {
+	ch, _, err := s.admin().Channel(id)
+	if err != nil {
 		c.Redirect(http.StatusFound, "/admin/users")
 		return
 	}
-	var maxID int64
-	_, _ = s.DAO.Engine().SQL("SELECT COALESCE(MAX(id),0) FROM message WHERE channel_id=?", id).Get(&maxID)
+	maxID, err := s.admin().ChannelMaxMsgId(id)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
 	if _, err := service.NewSync(s.DAO).PurgeChannel(ch.UserId, id, maxID); err != nil {
 		c.String(http.StatusInternalServerError, err.Error())
 		return

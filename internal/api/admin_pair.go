@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
+	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/api/web"
 	"github.com/aichy126/knockbox/internal/middleware"
-	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -34,7 +33,7 @@ func (s *Server) adminPairIssue(c *gin.Context) {
 	var uid int64
 	// 名字能对上就给那个人，对不上就当是要新建一个——
 	// 让用户先去别处建人、再回来选，是没必要的一次往返。
-	if uid := s.userIDByName(target); uid != 0 {
+	if uid := s.admin().MemberIdByName(strings.TrimSpace(target)); uid != 0 {
 		s.issueFor(c, uid)
 		return
 	}
@@ -46,10 +45,8 @@ func (s *Server) adminPairIssue(c *gin.Context) {
 			s.renderAdminPair(c, nil, "填一个成员名字：已有的会直接用，没有的会新建。")
 			return
 		}
-		now := time.Now().Unix()
-		u := &models.User{Name: name, Role: models.RoleMember,
-			Status: models.StatusActive, Ctime: now, Utime: now}
-		if _, err := s.DAO.Engine().Insert(u); err != nil {
+		u, err := s.admin().CreateMember(name)
+		if err != nil {
 			s.renderAdminPair(c, nil, "建成员失败："+err.Error())
 			return
 		}
@@ -69,7 +66,10 @@ func (s *Server) issueFor(c *gin.Context, uid int64) {
 
 func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg string) {
 	me := middleware.UserID(c)
-	users, _ := s.DAO.Engine().QueryString("SELECT id, name FROM user ORDER BY id")
+	users, err := s.admin().MemberNames()
+	if err != nil {
+		log.Error("admin: member names failed", log.Any("error", err.Error()))
+	}
 
 	var b strings.Builder
 	b.WriteString(`<div class="ph"><div><h1>配对设备</h1>` +
@@ -80,13 +80,12 @@ func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg 
 
 	// 可搜索：公共实例上成员会有几百个，下拉框那时是一条滚不完的列表。
 	// 输入的是名字（用户记得住的东西），服务端按名字反查。
-	var myName string
-	_, _ = s.DAO.Engine().SQL("SELECT name FROM user WHERE id=?", me).Get(&myName)
+	myName := s.admin().MemberName(me)
 	var sel strings.Builder
 	fmt.Fprintf(&sel, `<span class="picker"><input name="user" list="pOpts" value="%s" `+
 		`placeholder="成员名字" autocomplete="off"><datalist id="pOpts">`, web.E(myName))
 	for _, u := range users {
-		fmt.Fprintf(&sel, `<option value="%s">`, web.E(u["name"]))
+		fmt.Fprintf(&sel, `<option value="%s">`, web.E(u.Name))
 	}
 	fmt.Fprintf(&sel, `</datalist><span class="hint">%d 人</span></span>`, len(users))
 
@@ -103,8 +102,7 @@ func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg 
 		if err != nil {
 			qr = `<div class="dim">二维码生成失败</div>`
 		}
-		var owner string
-		_, _ = s.DAO.Engine().SQL("SELECT name FROM user WHERE id=?", code.UserID).Get(&owner)
+		owner := s.admin().MemberName(code.UserID)
 		body := `<div class="card-b" style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start">` +
 			`<div style="text-align:center">` + qr +
 			`<div class="code" style="margin-top:10px">` + web.E(code.Display) + `</div>` +
