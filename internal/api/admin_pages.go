@@ -379,7 +379,9 @@ func (s *Server) adminUsers(c *gin.Context) {
 
 	// 公共实例上成员会有几百上千，一次全渲染出来页面会很重，
 	// 而且没有搜索的话找一个人只能靠浏览器的 Ctrl+F。
-	rows, total, err := s.admin().Members(q, pageSize, (page-1)*pageSize)
+	rows, total, err := s.admin().Members(service.MemberFilter{
+		Query: q, Limit: pageSize, Offset: (page - 1) * pageSize,
+	})
 	if err != nil {
 		log.Error("admin: member list failed", log.Any("error", err.Error()))
 	}
