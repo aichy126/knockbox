@@ -148,16 +148,19 @@ const SessionCookie = "kb_session"
 //
 // 这是有意的全权限：管理员就是这台服务器的主人，能看到所有人的消息。
 // app 端主动扫码授权接入这个服务端，就已经接受了「服务端持有消息」这个前提。
-func AdminAuth(verify func(string) (*models.User, error)) gin.HandlerFunc {
+// code 与 render 的收法和 RateLimit.Gin 一样：middleware 不该认识语料，
+// 句子由 api 层按请求方的语言渲染。后台前后端分离之后读这句话的是浏览器里的
+// 一个人，而不是写脚本的人——两者要的语言不同。
+func AdminAuth(verify func(string) (*models.User, error), code string, render func(*gin.Context, string, ...any) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		raw, err := c.Cookie(SessionCookie)
 		if err != nil || raw == "" {
-			unauthorized(c, "未登录")
+			unauthorized(c, code, render)
 			return
 		}
 		u, err := verify(raw)
 		if err != nil {
-			unauthorized(c, "会话无效或已过期，请重新登录")
+			unauthorized(c, code, render)
 			return
 		}
 		c.Set(CtxUserID, u.Id)
@@ -166,18 +169,31 @@ func AdminAuth(verify func(string) (*models.User, error)) gin.HandlerFunc {
 	}
 }
 
+// AdminAPIPrefix 后台自用的 JSON 接口。这个前缀下【绝不能】返回 302。
+//
+// 浏览器 fetch 默认 redirect:"follow"，一个 302 会被它跟到 /login，
+// 拿回一个 200 的 HTML 页，然后在 res.json() 上炸掉——报出来的错和真实原因
+// （会话过期了）毫无关系，而且每个调用点都要各自去猜。
+const AdminAPIPrefix = "/admin/api/"
+
 // unauthorized 浏览器跳登录页，接口回 JSON。
 //
 // 统一回 JSON 的话，用户在地址栏敲一个后台地址会得到一屏 {"code":1,"msg":"未登录"}——
-// 那不是错误处理，那是把内部表示扔给用户看。按 Accept 头分流。
-func unauthorized(c *gin.Context, msg string) {
-	if strings.Contains(c.GetHeader("Accept"), "text/html") {
+// 那不是错误处理，那是把内部表示扔给用户看。所以按 Accept 头分流，
+// 唯独 /admin/api/ 下不分流（见 AdminAPIPrefix）。
+func unauthorized(c *gin.Context, code string, render func(*gin.Context, string, ...any) string) {
+	isAPI := strings.HasPrefix(c.Request.URL.Path, AdminAPIPrefix)
+	if !isAPI && strings.Contains(c.GetHeader("Accept"), "text/html") {
 		// 带上原地址，登录完能回到他本来要去的页面
 		c.Redirect(http.StatusFound, "/login?next="+url.QueryEscape(c.Request.URL.RequestURI()))
 		c.Abort()
 		return
 	}
-	fail(c, http.StatusUnauthorized, msg)
+	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+		"code": 1,
+		"msg":  render(c, code),
+		"data": gin.H{"error_code": code},
+	})
 }
 
 // Admin 取当前登录的管理员。

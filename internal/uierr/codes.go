@@ -43,6 +43,33 @@ const (
 	ReplyBadNumber  = "reply.bad_number"
 	ReplyEmpty      = "reply.empty"
 	ReplyOutOfRange = "reply.out_of_range"
+
+	// 管理后台。读它的是这台服务器的主人，坐在浏览器前面。
+	//
+	// AdminSessionExpired 不能复用 SessionInvalid：后者的句子是
+	// 「这台设备不再配对了，请重新配对」——那是说给 iOS 客户端听的。
+	// 对着一个浏览器说「重新配对」是胡话，这里的下一步是重新登录。
+	AdminSessionExpired = "admin.session_expired"
+
+	// 后台里「点了一个已经不在了的东西」。三者分开是因为回去的地方不同：
+	// 成员回成员列表，设备刷新当前这一页（可能别人已经注销过了），
+	// 消息回搜索页。
+	MemberNotFound  = "member.not_found"
+	DeviceNotFound  = "device.not_found"
+	MessageNotFound = "message.not_found"
+
+	// 改密码。三条分开不是为了「报得细」，是因为要重填的【不是同一个输入框】。
+	PasswordWrong    = "password.wrong"
+	PasswordMismatch = "password.mismatch"
+	PasswordWeak     = "password.weak"
+
+	// 设置。一个 code 带上字段名，而不是每个字段一个 code——
+	// 七个字段填错了，用户的下一步完全一样：把那一栏改对。
+	// 按字段拆是按「异常来源」分类，正是本文件开头反对的那种分法。
+	SettingBadValue = "setting.bad_value"
+
+	// 配对：后台签发时既没选人也没起名字
+	PairNoTarget = "pair.no_target"
 )
 
 // All 全部 code。测试拿它核对语料里一条不少——
@@ -56,4 +83,9 @@ var All = []string{
 	ChannelNotFound, ChannelExists, ChannelBadLevel,
 	ReplyNotFound, ReplyNotOpen, ReplyExpired, ReplyDone,
 	ReplyBadChoice, ReplyBadNumber, ReplyEmpty, ReplyOutOfRange,
+	AdminSessionExpired,
+	MemberNotFound, DeviceNotFound, MessageNotFound,
+	PasswordWrong, PasswordMismatch, PasswordWeak,
+	SettingBadValue,
+	PairNoTarget,
 }

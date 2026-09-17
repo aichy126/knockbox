@@ -118,7 +118,7 @@ func Router(r *gin.Engine, s *Server) {
 	}
 	r.GET("/login", s.loginPage)
 	r.GET("/logout", s.logout)
-	admin := r.Group("", middleware.AdminAuth(verify))
+	admin := r.Group("", middleware.AdminAuth(verify, uierr.AdminSessionExpired, s.userText))
 	// 后台里的配对页（能选发给谁）。/pair 留作旧地址，重定向过去。
 	admin.GET("/admin/pair", s.adminPairPage)
 	admin.POST("/admin/pair", s.adminPairIssue)
