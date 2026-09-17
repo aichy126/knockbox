@@ -246,3 +246,70 @@ func TestMCPRequiresChannelToken(t *testing.T) {
 		t.Errorf("没带 token 应当 401，得到 %d", code)
 	}
 }
+
+// 握手与工具清单。上面那些测试调的都是 tools/call，走不到协商这一段，
+// 而 agent 连不上的时候第一步就卡在这里——升级 mcp-go 之后最该先看它还通不通。
+func TestMCPHandshakeAndToolList(t *testing.T) {
+	_, r, ch := newSendServer(t, 0, 0)
+
+	rpc := func(method string, params map[string]any) map[string]any {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/mcp/"+ch.Token, strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s 得到 %d：%s", method, w.Code, w.Body.String())
+		}
+		var out struct {
+			Result map[string]any `json:"result"`
+			Error  *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatalf("%s 的响应不是 JSON-RPC：%s", method, w.Body.String())
+		}
+		if out.Error != nil {
+			t.Fatalf("%s 协议层报错：%s", method, out.Error.Message)
+		}
+		return out.Result
+	}
+
+	init := rpc("initialize", map[string]any{
+		"protocolVersion": "2025-06-18",
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "test", "version": "0"},
+	})
+	if v, _ := init["protocolVersion"].(string); v == "" {
+		t.Errorf("握手没有回协议版本：%v", init)
+	}
+	info, _ := init["serverInfo"].(map[string]any)
+	if name, _ := info["name"].(string); name != "knockbox" {
+		t.Errorf("serverInfo.name 应当是 knockbox，得到 %v", info)
+	}
+
+	list := rpc("tools/list", map[string]any{})
+	tools, _ := list["tools"].([]any)
+	found := false
+	for _, it := range tools {
+		m, _ := it.(map[string]any)
+		if n, _ := m["name"].(string); n == "knock" {
+			found = true
+			// 描述是 agent 决定要不要调它的唯一依据，空的等于这个工具不存在。
+			if d, _ := m["description"].(string); d == "" {
+				t.Error("knock 没有描述")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("工具清单里没有 knock：%v", tools)
+	}
+}
