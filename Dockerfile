@@ -9,12 +9,17 @@ COPY . .
 # 留第二条路是因为有的构建系统传不了 build-arg，只能在构建前往工作区写文件。
 # 两处 :- 都不能省：ARG 缺省给空串，第二条路才轮得到；.version 缺失或为空，才回落 dev
 # —— 否则注入的会是空版本号，比 dev 更难查。
+#
+# `|| true` 也不能省：赋值语句的退出码就是命令替换的退出码，所以没有 .version 时
+# cat 的 1 会让整条 RUN 在 && 处短路——go build 一次都没跑，报错里却只有一句
+# "did not complete successfully"，看不出是谁失败的。不传 VERSION 的构建
+# （`docker build .`，CI 的冒烟测试也是）每一次都会栽在这里。
 ARG VERSION=
 # buildx 自动注入，单架构构建时为空，go 会回落到本机的 GOOS/GOARCH。
 ARG TARGETOS
 ARG TARGETARCH
 # CGO_ENABLED=0 是硬要求：SQLite 用 modernc.org/sqlite 纯 Go 驱动就是为了这个。
-RUN VERSION="${VERSION:-$(cat .version 2>/dev/null)}" && \
+RUN VERSION="${VERSION:-$(cat .version 2>/dev/null || true)}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X main.Version=${VERSION:-dev}" -o /out/knockbox .
 
 FROM alpine:3.21
