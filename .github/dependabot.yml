@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Go 依赖。补丁和次版本合成一个 PR，免得每周开出十几个。
+  # 主版本单独来：那种升级要读 changelog，不该混进批量 PR 里。
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Actions 也要跟：CI 挂在过期的 action 上，最先受影响的是别人提的 PR。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"

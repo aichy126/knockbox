@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security issue
+    url: https://github.com/aichy126/knockbox/blob/main/SECURITY.md
+    about: Please report these by email, not as a public issue.

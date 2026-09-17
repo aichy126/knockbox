@@ -1,0 +1,46 @@
+name: Bug report
+description: Something behaves differently from what the docs say.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security issues here — see [SECURITY.md](../blob/main/SECURITY.md).
+        Issues in English or Chinese are both fine.
+
+  - type: input
+    id: version
+    attributes:
+      label: Knockbox version
+      description: Output of `knockbox --version`, or the image tag you are running.
+      placeholder: v1.2.0 / ghcr.io/aichy126/knockbox:v1.2.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it
+      options:
+        - Docker
+        - Prebuilt binary
+        - Built from source
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Server log around the failure. Redact channel tokens, APNs keys and device
+        tokens before pasting — a channel token is enough to send on your behalf.
+      render: text

@@ -1,0 +1,35 @@
+version: 2
+
+before:
+  hooks: [go mod tidy]
+
+builds:
+  # CGO_ENABLED=0 是硬要求：SQLite 走 modernc.org 纯 Go 驱动就是为了能这样交叉编译，
+  # 一旦有人引入需要 cgo 的依赖，这里会立刻在 CI 上炸掉——这正是我们想要的。
+  - env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.Version={{.Version}}"]
+    goos: [linux, darwin, windows, freebsd]
+    goarch: [amd64, arm64, "386", arm]
+    goarm: ["6", "7"]
+    ignore:
+      # macOS 从来没有 32 位 arm/386 的目标
+      - { goos: darwin, goarch: "386" }
+      - { goos: darwin, goarch: arm }
+      # Windows on ARM 只有 arm64，没有 32 位 arm
+      - { goos: windows, goarch: arm }
+
+archives:
+  - formats: [tar.gz]
+    # Windows 上没人愿意解 tar.gz
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [README.md, README.zh-CN.md, SECURITY.md, SECURITY.zh-CN.md, LICENSE, config.toml.example]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]

@@ -1,0 +1,7 @@
+.git
+data
+config.toml
+knockbox
+*.db
+*.db-wal
+*.db-shm

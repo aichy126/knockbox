@@ -1,0 +1,7 @@
+version: "2"
+
+linters:
+  # 只用标准那一组（errcheck / govet / ineffassign / staticcheck / unused）。
+  # 它们抓的是真错。再加 linter 的成本不在这份配置，在为每一个的口味改一批代码，
+  # 而那批改动多数不让程序更对。真需要某一条时再单独打开，并在这里写清为什么。
+  default: standard

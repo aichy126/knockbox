@@ -1,0 +1,268 @@
+# Knockbox server configuration.
+#
+# Copy this file to config.toml and edit it. config.toml is listed in .gitignore;
+# do not commit it.
+#
+# Every key can be overridden by an environment variable: IGO_ plus the uppercased
+# path, dots replaced by underscores. This is the intended way to pass secrets.
+#   server.external_url        ->  IGO_SERVER_EXTERNAL_URL
+#   apns.production.key_base64 ->  IGO_APNS_PRODUCTION_KEY_BASE64
+
+
+# ── HTTP server ──────────────────────────────────────────────────────────────
+[local]
+# Address to listen on. Omit the host to listen on every interface.
+address = ":8080"
+# Gin's debug mode: verbose startup route dump and request logs. Keep it off in
+# production; it is noise, not extra safety.
+debug = false
+
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+[local.logger]
+# Directory the log files are written to. Created on startup if missing.
+dir = "./data/logs"
+# File name inside that directory.
+name = "knockbox.log"
+# Log one line per HTTP request.
+access = true
+# Lowest level to record: DEBUG, INFO, WARN or ERROR.
+level = "INFO"
+# Rotate once the current file reaches this many MB.
+max_size = 50
+# How many rotated files to keep.
+max_backups = 5
+# How many days to keep a rotated file, regardless of max_backups.
+max_age = 14
+
+
+# ── Database ─────────────────────────────────────────────────────────────────
+[sqlite.knockbox]
+# Path to the SQLite file, followed by the connection pragmas.
+#
+# Keep the whole _pragma chain. igo only fills in busy_timeout and journal_mode when
+# the DSN contains no _pragma= at all; as soon as one is present it silently stops
+# filling in the rest. The symptoms of a missing one are random "database is locked"
+# errors and channel purges that do not actually erase anything.
+# migrate.bootstrap() asserts the critical ones at startup, so a mistake here fails
+# the boot instead of surfacing weeks later.
+#
+#   _txlock=immediate        Begin every write transaction with BEGIN IMMEDIATE. The
+#                            default (deferred) fails outright when a transaction reads
+#                            first and then writes while another writer committed in
+#                            between, and busy_timeout does not cover that lock upgrade.
+#   busy_timeout(5000)       Wait up to 5s for a lock instead of failing immediately.
+#   secure_delete(ON)        Required for "purging a channel really erases it". Without
+#                            it DELETE only marks pages free and the content stays in
+#                            the file, readable with grep.
+#   journal_mode(WAL)        Readers do not block the single writer.
+#   synchronous(NORMAL)      Safe under WAL and far fewer fsyncs than FULL.
+#   auto_vacuum(incremental) Must live in the DSN, not in a PRAGMA statement: it only
+#                            takes effect on an empty database, on the connection that
+#                            first writes to it, and the pool would run a PRAGMA on a
+#                            different connection than the one creating the tables.
+#                            Changing it afterwards requires a full VACUUM.
+data_source = "./data/knockbox.db?_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=secure_delete(ON)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=auto_vacuum(incremental)"
+# Maximum open connections. SQLite serialises writes, so a large pool buys nothing.
+max_open = 4
+# Maximum idle connections kept in the pool.
+max_idle = 4
+# Log every SQL statement. Very noisy; for debugging only.
+is_debug = false
+
+
+# ── Server identity ──────────────────────────────────────────────────────────
+[server]
+# Shown in the admin interface and returned by /api/v1/server so the app can display
+# which server it is paired with.
+name = "My Push"
+# The address clients reach this server at. Used to build the curl examples, the
+# pairing deep links and the signed attachment URLs, so it has to be exact — a wrong
+# value here produces links that look fine and do not work.
+external_url = "http://localhost:8080"
+# Lifetime of a pairing code, in seconds. A code is single-use; this bounds how long a
+# screenshot of the QR stays useful.
+pair_ttl = 600
+
+
+# ── First admin account ──────────────────────────────────────────────────────
+[bootstrap]
+# On a database with no accounts at all, the server creates this admin on startup and
+# prints the credentials once. It is skipped as soon as one account exists, so an
+# existing install is never given a new admin.
+#
+# Leaving the password empty means a random one is generated and printed to the
+# startup log. That is the recommended way: a password in this file is a password on
+# disk. Either way you can change it later on the Account section of the admin
+# interface, or with `knockbox user passwd <name>`.
+#
+# Both can also come from the environment, which is what you want with Docker:
+#   IGO_BOOTSTRAP_USERNAME, IGO_BOOTSTRAP_PASSWORD
+username = "admin"
+password = ""
+
+
+# ── Apple Push Notification service ──────────────────────────────────────────
+[apns]
+# Turn pushing off entirely. Messages are still stored and still sync to the app;
+# they just do not produce a notification.
+enabled = true
+# The bundle id of the iOS app. APNs device tokens are bound to it.
+topic = "com.miramiao.knockbox"
+# Apple developer Team ID, used to sign the provider token.
+team_id = "258X46W652"
+# How many pushes are delivered in parallel.
+concurrency = 8
+# Timeout for a single request to Apple, in milliseconds.
+timeout_ms = 8000
+# How many times a retryable failure is retried before the delivery is abandoned.
+# Retries back off: 5s, 30s, 2m, 10m, 30m.
+max_attempts = 5
+# apns-expiration offset, in seconds: how long Apple keeps trying to deliver a message
+# whose device is offline. Do not set 0 — that means "try once and discard", so every
+# message sent while the phone is off is lost for good.
+default_expiration = 86400
+
+# There is no global environment switch. Each push goes to the environment the device
+# reported when it registered, and a production push that comes back BadDeviceToken is
+# retried against the other environment, with the device record corrected. That is
+# more accurate than any setting could be.
+
+# Production keys. Apps installed from the App Store or TestFlight use this environment.
+#
+# A topic-specific APNs key can only be bound to a single environment (Apple's rule,
+# not changeable after creation), which is why production and sandbox are separate.
+# The cost of that is two keys; what it buys is a blast radius limited to one bundle
+# id. A Team-level key would hand out push access to every app under the account, and
+# one of these keys ships publicly in this repository.
+[apns.production]
+# Key ID of the .p8 file.
+key_id = ""
+# Path to the .p8 file.
+key_file = ""
+# The .p8 file contents, base64-encoded. Prefer IGO_APNS_PRODUCTION_KEY_BASE64.
+key_base64 = ""
+# Leaving all three empty uses the public key embedded in this repository, which is
+# what lets you self-host without an Apple developer account.
+
+# Sandbox keys. Only needed if you build the iOS app yourself with Xcode in Debug.
+# If you use the App Store build, leave this whole section alone.
+[apns.sandbox]
+# Key ID of the .p8 file.
+key_id = ""
+# Path to the .p8 file.
+key_file = ""
+# The .p8 file contents, base64-encoded. Prefer IGO_APNS_SANDBOX_KEY_BASE64.
+key_base64 = ""
+
+
+# ── Public mode ──────────────────────────────────────────────────────────────
+# When enabled, anyone who opens the home page can scan the QR code and register
+# themselves as a member. Off by default: nobody self-hosting wants a stranger who
+# found the address to be able to open an account on their server.
+# Turn it on only for an instance you intend to offer to other people.
+[public]
+# Enable public registration. Can also be toggled from the admin interface, and the
+# stored value wins over this one once it has been set there.
+enabled = false
+# How many registrations one IP may start per hour. Refreshing the join page does not
+# count — the code it issued is remembered in a cookie and reused.
+register_per_hour = 3
+# Per-member channel limit. Only applies in public mode.
+max_channels = 20
+# Per-member message limit over a rolling 24-hour window, not a calendar day.
+# Only applies in public mode.
+max_messages_per_day = 500
+# Per-member retention in days on a public instance. Members flagged as unlimited in
+# the admin interface are exempt. See retention.days for the instance-wide limit.
+retention_days = 30
+# Site name shown on the join page.
+site_name = "Knockbox"
+# Where the "how to use this" link on the join page points.
+docs_url = "/docs"
+
+
+# ── Attachment storage ───────────────────────────────────────────────────────
+[storage]
+# Directory the attachment blobs are written to, addressed by content hash.
+dir = "./data/files"
+# Largest accepted upload, in MB. Checked before the body is read into memory.
+max_upload_mb = 20
+# Lifetime of a signed attachment URL, in seconds. A push can be delivered late, and a
+# TTL shorter than that delay shows the user an empty image.
+url_ttl = 604800
+# Images are always re-encoded and the original is not kept: this is a notification
+# service, not a file host, and legible is enough.
+# Longest edge of the image the user sees when opening the message, in pixels.
+image_max_px = 1600
+# Longest edge of the thumbnail that goes into the APNs payload, in pixels. The
+# notification extension that downloads it has a 24 MB memory budget, so keep it small.
+thumb_max_px = 600
+# JPEG quality for both derived images, 1-100.
+jpeg_quality = 82
+
+
+# ── Retention and backup ─────────────────────────────────────────────────────
+[retention]
+# Instance-wide retention in days. Messages older than this are physically deleted.
+# 0 keeps everything, which is the default: a full archive is the point, and a newly
+# paired device pulls the whole history.
+#
+# Different from public.retention_days: this one applies to everyone, including
+# members flagged unlimited, and including self-hosted instances. That one is only the
+# cap a public instance puts on strangers. When both are set the stricter one wins.
+days = 0
+# How many automatic backups to keep. Older ones are deleted.
+backup_keep = 7
+# Directory the backups are written to.
+backup_dir = "./data/backup"
+# Hours between automatic backups. 0 disables them.
+# Backups use VACUUM INTO, which takes a consistent snapshot without blocking writes.
+# Copying the database file instead is wrong: the WAL contents are not in that file.
+backup_every_hours = 24
+
+
+# ── Replies ──────────────────────────────────────────────────────────────────
+# A sender can mark a message as replyable and give a callback URL. When the person
+# answers on their phone, the answer is POSTed to that URL, signed with
+# X-Knockbox-Signature: sha256=HMAC-SHA256(body, channel token).
+[reply]
+# How long to wait for the callback endpoint, in milliseconds. Kept short on purpose:
+# the sender is usually blocked on this answer, and a reply that arrives half an hour
+# late is no longer useful.
+webhook_timeout_ms = 5000
+# How many times a failed callback is retried before it is abandoned. Retries back
+# off: 5s, 30s, 2m. An abandoned callback is logged and shown in the admin interface;
+# the person's phone still shows their reply as sent, because it was.
+webhook_max_attempts = 3
+# Whether callbacks may target private, loopback and link-local addresses while this
+# instance is in public mode. Ignored when public mode is off: a self-hosted server
+# lives inside your own network and needs to reach it — that is the whole point.
+#
+# Turning this on for a public instance hands anyone holding a send token the ability
+# to make this server issue requests into its own network, including cloud metadata
+# endpoints. Leave it off unless every sender on this instance is someone you trust.
+public_allow_private = false
+
+
+# ── Rate limits ──────────────────────────────────────────────────────────────
+[limit]
+# Sustained send rate per channel token, in messages per second. 0 disables the limit.
+#
+# This is abuse protection, not a business quota. public.max_messages_per_day caps the
+# daily total; this caps the instantaneous rate, and it applies to self-hosted
+# instances too — those have no quota at all, so without it a leaked token could fill
+# the database and the disk unchecked.
+# If the whole section is missing, 20 and 60 are used rather than "no limit".
+send_qps = 20
+# How many sends may arrive at once before the sustained rate applies. A failing build
+# firing off a few dozen notifications at once is normal traffic.
+send_burst = 60
+# Pairing attempts allowed per IP per minute. A pairing code is only 40 bits because a
+# person has to type it, so single use, a short lifetime and this limit have to cover
+# for its length together.
+pair_per_min = 5
+# Largest message body accepted, in KB. The body does not go into the APNs payload, so
+# this is bounded by storage rather than by Apple's 4 KB limit. Bodies over the limit
+# are rejected, never silently truncated.
+body_max_kb = 1024

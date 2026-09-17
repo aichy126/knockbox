@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # 跟着 go.mod 走，别写死——写死了升级 Go 版本时会在 CI 上莫名其妙地挂
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        # gofmt -l 对格式不对的文件会打出文件名；有输出就让这一步失败
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "$out"; echo "run: gofmt -w ."; exit 1; fi
+
+      - run: go vet ./...
+
+      # go.mod 必须是 tidy 过的：直接依赖被误标成 indirect 是 clone 下来第一眼就能看到的事
+      - name: go mod tidy
+        run: go mod tidy -diff
+
+      # action 的大版本和 golangci-lint 的大版本是绑死的：v6 只吃 golangci-lint v1，
+      # v7 起才是 v2。配置在 .golangci.yml，本地 `make lint` 跑的是同一份。
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+
+      # 竞态检测【需要 cgo】（macOS 上不带 cgo 也能跑，Linux 上会直接报错），
+      # 所以这一步开着 cgo 跑。
+      - run: go test ./... -race -cover
+
+      # 另一件事：SQLite 走 modernc.org 纯 Go 驱动，关掉 cgo 也必须编得过——
+      # 发布产物是静态二进制、Docker 镜像是 FROM alpine，都依赖这个前提。
+      - run: CGO_ENABLED=0 go build ./...
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build image
+        run: docker build -t knockbox:ci .
+      - name: 容器能起来并且自己建好库
+        run: |
+          docker run -d --name kb -p 18080:8080 knockbox:ci
+          for i in $(seq 1 30); do
+            if curl -fsS localhost:18080/health >/dev/null 2>&1; then ok=1; break; fi
+            sleep 1
+          done
+          docker logs kb
+          test -n "$ok"

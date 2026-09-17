@@ -1,0 +1,19 @@
+config.toml
+data/
+logs/
+*.db
+*.db-wal
+*.db-shm
+knockbox
+/dist/
+# 用户自己的 APNs 密钥绝不入库。
+# 注意：内置的那把公开 topic-specific 密钥【是】要进仓库的（那是它的用途），
+# 它放在 internal/library/apns/embedded/ 下，不受这条规则影响。
+secrets/
+*.p8
+!internal/library/apns/embedded/*.p8
+
+coverage.out
+
+# 构建前由流水线写入的短 commit SHA，见 Dockerfile。
+.version
