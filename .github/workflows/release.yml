@@ -13,7 +13,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod, cache: true }
@@ -31,7 +31,7 @@ jobs:
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # arm64 也要出镜像：自建推送服务端跑在 ARM 小机器上是常态。
       # 编译本身是交叉编译（Dockerfile 里按 TARGETARCH 编，CGO_ENABLED=0 所以零成本），
