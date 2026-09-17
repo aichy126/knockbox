@@ -12,8 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           # 跟着 go.mod 走，别写死——写死了升级 Go 版本时会在 CI 上莫名其妙地挂
           go-version-file: go.mod
@@ -48,7 +48,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: build image
         run: docker build -t knockbox:ci .
       - name: 容器能起来并且自己建好库
