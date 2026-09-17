@@ -9,6 +9,7 @@ import (
 
 	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/api/web"
+	"github.com/aichy126/knockbox/internal/library/bytesize"
 	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
@@ -573,7 +574,7 @@ func (s *Server) adminSettings(c *gin.Context) {
 			kv("频道数", fmt.Sprint(u.Channels)) +
 			kv("24 小时消息", fmt.Sprint(u.Today)) +
 			kv("消息总数", fmt.Sprint(u.Messages)) +
-			kv("附件占用", humanBytes(u.FileBytes)) +
+			kv("附件占用", bytesize.Decimal(u.FileBytes)) +
 			`</div>`
 		b.WriteString(`<div class="narrow">` + web.Card("你自己的用量", "", usage) + `</div>`)
 
@@ -669,16 +670,4 @@ func (s *Server) adminSettingsSave(c *gin.Context) {
 		return
 	}
 	c.Redirect(http.StatusFound, "/admin/settings?saved=1")
-}
-
-func humanBytes(n int64) string {
-	switch {
-	case n >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(n)/float64(1<<30))
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/float64(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.0f KB", float64(n)/float64(1<<10))
-	}
-	return fmt.Sprintf("%d B", n)
 }
