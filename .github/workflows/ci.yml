@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # 跟着 go.mod 走，别写死——写死了升级 Go 版本时会在 CI 上莫名其妙地挂
           go-version-file: go.mod
