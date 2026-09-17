@@ -388,3 +388,139 @@ func TestMemberDetailHidesAPNsToken(t *testing.T) {
 		t.Errorf("应当有一台能收推送的设备，得到 %+v", d.Devices)
 	}
 }
+
+// 同一个频道的消息数，在两个端点上必须是同一个数。
+//
+// 原先频道详情读反范式的 channel.msg_count、成员详情走 COUNT(*)，而保留期 GC
+// （internal/service/gc.go 那条 DELETE）不维护 msg_count——跑过之后两屏对同一个
+// 频道显示两个数，而且都不报错。这里直接模拟 GC 的删法。
+func TestChannelMessageCountAgreesAcrossEndpoints(t *testing.T) {
+	s, r, cookie, member := adminWith(t, "别人")
+	ch, err := service.NewChannel(s.DAO).Create(member, service.ChannelInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		if _, err := service.NewSend(s.DAO).Deliver(ch, service.SendInput{Title: "x"}, "127.0.0.1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	counts := func() (detail, inMember int64) {
+		_, e, _ := apiGet(t, r, "/admin/api/channels/"+ch.Id, cookie)
+		var cd channelDetail
+		if err := json.Unmarshal(e.Data, &cd); err != nil {
+			t.Fatal(err)
+		}
+		_, e, _ = apiGet(t, r, "/admin/api/members/"+itoa(member), cookie)
+		var md memberDetail
+		if err := json.Unmarshal(e.Data, &md); err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range md.Channels {
+			if c.ID == ch.Id {
+				return cd.Channel.Messages, c.Messages
+			}
+		}
+		t.Fatal("成员详情里没有这个频道")
+		return 0, 0
+	}
+
+	if a, b := counts(); a != 6 || b != 6 {
+		t.Fatalf("发完 6 条，两处都应当是 6，得到 频道详情=%d 成员详情=%d", a, b)
+	}
+
+	// 模拟保留期 GC：直接删行，不碰 msg_count——这正是 gc.go 的做法
+	if _, err := s.DAO.Engine().Exec(
+		"DELETE FROM message WHERE channel_id=? AND id IN (SELECT id FROM message WHERE channel_id=? LIMIT 4)",
+		ch.Id, ch.Id); err != nil {
+		t.Fatal(err)
+	}
+	a, b := counts()
+	if a != b {
+		t.Errorf("GC 之后两个端点对同一频道给出不同的数：频道详情=%d 成员详情=%d", a, b)
+	}
+	if a != 2 {
+		t.Errorf("删掉 4 条之后应当剩 2 条，得到 %d", a)
+	}
+}
+
+// 成员详情里的三个计数不能是 0——列表端点同名字段是真值，
+// 同一个类型在两处含义不同的话，前端复用一个卡片组件就会在详情页显示「设备 0」。
+func TestMemberDetailFillsCounts(t *testing.T) {
+	s, r, cookie, member := adminWith(t, "别人")
+	ch, err := service.NewChannel(s.DAO).Create(member, service.ChannelInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.NewSend(s.DAO).Deliver(ch, service.SendInput{Title: "x"}, "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	dev := &models.Device{UUID: "u1", UserId: member, Name: "iPhone",
+		APNsToken: "t", APNsEnv: "production", Status: models.DeviceLive}
+	if _, err := s.DAO.Engine().Insert(dev); err != nil {
+		t.Fatal(err)
+	}
+
+	_, e, _ := apiGet(t, r, "/admin/api/members/"+itoa(member), cookie)
+	var d memberDetail
+	if err := json.Unmarshal(e.Data, &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Member.Devices != 1 || d.Member.Channels != 1 || d.Member.Messages != 1 {
+		t.Errorf("member 里的计数应当是 1/1/1，得到 %d/%d/%d",
+			d.Member.Devices, d.Member.Channels, d.Member.Messages)
+	}
+	// 和同一份响应里的数组长度对得上
+	if int(d.Member.Devices) != len(d.Devices) || int(d.Member.Channels) != len(d.Channels) {
+		t.Error("member 里的计数和同一份响应里的数组长度对不上")
+	}
+}
+
+// listOf 拿到 nil 切片时也要给出 []。
+//
+// 现在三个列表端点都经过 make() 的映射函数，所以这条在端点层面测不出来——
+// 它防的是下一个直接 res.Rsucc(listOf(...)) 的调用方：xorm 查不到行时留下的是
+// nil 切片，序列化成 items:null，前端一个 data.items.map() 就抛 TypeError。
+func TestListOfNilIsEmptyArray(t *testing.T) {
+	out := listOf[memberJSON](nil, 10, func(m memberJSON) int64 { return m.ID })
+	if out.Items == nil {
+		t.Fatal("nil 切片应当变成空切片")
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"items":[]`) {
+		t.Errorf("应当序列化成 items:[]，得到 %s", b)
+	}
+	if out.HasMore || out.NextCursor != "" {
+		t.Errorf("空结果不该有下一页：%+v", out)
+	}
+}
+
+// 端点这一层的同一条契约（走的是映射函数，不是 listOf）。
+func TestEmptyListIsArrayNotNull(t *testing.T) {
+	_, r, cookie, _ := adminWith(t, "别人")
+	for _, p := range []string{
+		"/admin/api/messages?q=一条也匹配不上的词",
+		"/admin/api/members?q=没有这个人",
+	} {
+		_, e, _ := apiGet(t, r, p, cookie)
+		if !strings.Contains(string(e.Data), `"items":[]`) {
+			t.Errorf("%s：空列表应当是 []，得到 %s", p, e.Data)
+		}
+	}
+}
+
+// 设置页的 tab 用 key 不用中文文案：文案一翻译，中文当路由状态的那条链接就点不亮了。
+func TestSettingsTabUsesKeyNotLabel(t *testing.T) {
+	_, r, cookie, _ := adminWith(t, "别人")
+	body := adminGet(t, r, "/admin/settings?tab=server", cookie).Body.String()
+	if !strings.Contains(body, "改密码") {
+		t.Error("?tab=server 应当打开「服务器」那一页")
+	}
+	if strings.Contains(body, "tab=%E6%9C%8D%E5%8A%A1%E5%99%A8") || strings.Contains(body, "tab=服务器") {
+		t.Error("链接里还有中文当路由状态")
+	}
+}

@@ -474,12 +474,36 @@ func (a *Admin) ChannelMaxMsgId(id string) (int64, error) {
 	return maxID, err
 }
 
+// ChannelPick 搜索页频道下拉需要的最小一份：id、属主、名字所在的 meta。
+//
+// 不复用 ChannelRow：那个类型有十个字段，而这里只查得出三个，其余七个会是
+// 静默的零值——读到 .Muted 的人会拿到一个看起来合法的 false。
+// 「列名没查出来就是零值、不报错」正是这一层换成带类型结构体要消灭的东西，
+// 用一个只有三个字段的类型，编译器就替人把关了。
+type ChannelPick struct {
+	Id     string `xorm:"'id'"`
+	UserId int64  `xorm:"'user_id'"`
+	Meta   string `xorm:"'meta'"`
+}
+
 // AllChannels 搜索页的频道下拉：一次全带出来，在前端按成员过滤。
-func (a *Admin) AllChannels() ([]ChannelRow, error) {
-	var out []ChannelRow
+func (a *Admin) AllChannels() ([]ChannelPick, error) {
+	var out []ChannelPick
 	err := a.d.Engine().SQL(
 		"SELECT id, user_id, meta FROM channel ORDER BY user_id, created_at").Find(&out)
 	return out, err
+}
+
+// ChannelMessageCount 频道里还剩多少条没删的消息。
+//
+// 【不要用 channel.msg_count】：那是反范式的计数器，保留期 GC
+// （internal/service/gc.go 里那条 DELETE）不维护它，跑过之后它会偏高。
+// 后台两处显示消息数的地方都走这一个，免得同一个频道在两屏上是两个数。
+func (a *Admin) ChannelMessageCount(id string) (int64, error) {
+	var n int64
+	_, err := a.d.Engine().SQL(
+		"SELECT COUNT(*) FROM message WHERE channel_id=? AND deleted_at=0", id).Get(&n)
+	return n, err
 }
 
 // ── 设备 ──────────────────────────────────────────────
