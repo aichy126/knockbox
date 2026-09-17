@@ -27,15 +27,15 @@ var (
 func Execute() {
 	root := &cobra.Command{
 		Use:   "knockbox",
-		Short: "自建消息推送服务端",
-		Long: "Knockbox —— 自建消息推送服务端。\n\n" +
-			"它只负责消息：存储、推送、历史、富媒体。\n" +
-			"谁该收哪条消息是上游系统的事，这里没有订阅的概念。",
+		Short: "Self-hosted push notification server",
+		Long: "Knockbox — a self-hosted push notification server.\n\n" +
+			"It does one thing: messages. Storing them, pushing them, keeping the history.\n" +
+			"Who should receive what is the sending system's business; there is no subscription model here.",
 		SilenceUsage:  true, // 运行期错误不要糊一屏 usage 出来
 		SilenceErrors: true, // 错误统一在下面打，保证格式一致
 		Version:       Version,
 	}
-	root.PersistentFlags().StringVarP(&configPath, "config", "c", "config.toml", "配置文件路径")
+	root.PersistentFlags().StringVarP(&configPath, "config", "c", "config.toml", "path to the config file")
 
 	root.AddCommand(
 		newServeCmd(),
@@ -44,7 +44,7 @@ func Execute() {
 	)
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "错误:", err)
+		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }

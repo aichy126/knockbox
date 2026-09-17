@@ -16,14 +16,14 @@ func openApp() (*igo.Application, *xorm.Engine, error) {
 	// 显式传路径：留空的话 igo 会去解析 stdlib 的 -c flag，和 cobra 打架。
 	app, err := igo.NewApp(configPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("加载配置 %s 失败: %w", configPath, err)
+		return nil, nil, fmt.Errorf("cannot load config %s: %w", configPath, err)
 	}
 	dm := app.DB.Get(models.DBName)
 	if dm == nil || dm.WriteDB == nil {
-		return nil, nil, fmt.Errorf("配置里找不到 [sqlite.%s]，参考 config.toml.example", models.DBName)
+		return nil, nil, fmt.Errorf("no [sqlite.%s] section in the config; see config.toml.example", models.DBName)
 	}
 	if err := migrate.Run(dm.WriteDB); err != nil {
-		return nil, nil, fmt.Errorf("数据库迁移失败: %w", err)
+		return nil, nil, fmt.Errorf("database migration failed: %w", err)
 	}
 	return app, dm.WriteDB, nil
 }

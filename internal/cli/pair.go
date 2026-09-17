@@ -15,9 +15,9 @@ func newPairCmd() *cobra.Command {
 	var ttl time.Duration
 	c := &cobra.Command{
 		Use:   "pair",
-		Short: "签发配对码，直接在终端里打出二维码",
-		Long: "签发一次性配对码，并在终端里打出二维码给 app 扫。\n\n" +
-			"不需要先起服务、再开浏览器——这是第一次接入和「手机丢了」时的主路径。",
+		Short: "Issue a pairing code and print it as a QR code",
+		Long: "Issue a single-use pairing code and print it as a QR code for the app to scan.\n\n" +
+			"No server to start and no browser needed — this is the path for the first device, and for the day a phone is lost.",
 		Example: "  knockbox pair\n" +
 			"  knockbox pair --user alice --ttl 1h",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -31,7 +31,7 @@ func newPairCmd() *cobra.Command {
 			if username != "" {
 				u, err := acc.GetByUsername(username)
 				if err != nil {
-					return fmt.Errorf("账号 %q 不存在。看看有哪些：knockbox user list", username)
+					return fmt.Errorf("no account named %q. See what exists: knockbox user list", username)
 				}
 				userID = u.Id
 			} else {
@@ -40,10 +40,10 @@ func newPairCmd() *cobra.Command {
 					return err
 				}
 				if len(us) == 0 {
-					return fmt.Errorf("还没有任何账号。启动一次服务（knockbox serve）会自动建出管理员，或者手动建：knockbox user add <用户名>")
+					return fmt.Errorf("no accounts yet. Starting the server once (knockbox serve) creates an admin, or create one now: knockbox user add <name>")
 				}
 				if len(us) > 1 {
-					return fmt.Errorf("有 %d 个账号，用 --user 指明给谁配对（knockbox user list 可以看）", len(us))
+					return fmt.Errorf("there are %d accounts; use --user to say which one this device pairs to (knockbox user list shows them)", len(us))
 				}
 				userID = us[0].Id
 			}
@@ -59,16 +59,16 @@ func newPairCmd() *cobra.Command {
 
 			fmt.Println()
 			qrterminal.GenerateHalfBlock(p.DeepLink, qrterminal.L, os.Stdout)
-			fmt.Printf("\n  服务器   %s\n", host)
-			fmt.Printf("  配对码   %s\n", p.Display)
-			fmt.Printf("  有效期   %s 之前（%s）\n",
+			fmt.Printf("\n  Server     %s\n", host)
+			fmt.Printf("  Code       %s\n", p.Display)
+			fmt.Printf("  Valid to   %s (%s)\n",
 				p.ExpiresAt.Format("15:04:05"), time.Until(p.ExpiresAt).Round(time.Second))
-			fmt.Printf("\n  用 Knockbox 扫上面的二维码；扫不了就在 app 里手动填服务器地址和配对码。\n")
-			fmt.Printf("  配对码只能用一次。\n\n")
+			fmt.Printf("\n  Scan the code above with Knockbox. If scanning is not possible, enter the\n  server address and the code in the app by hand.\n")
+			fmt.Printf("  The code works once.\n\n")
 			return nil
 		},
 	}
-	c.Flags().StringVar(&username, "user", "", "给哪个账号配对（只有一个账号时可省略）")
-	c.Flags().DurationVar(&ttl, "ttl", 0, "有效期，留空用配置里的 server.pair_ttl")
+	c.Flags().StringVar(&username, "user", "", "which account this device pairs to (optional when there is only one)")
+	c.Flags().DurationVar(&ttl, "ttl", 0, "how long the code stays valid; empty uses server.pair_ttl from the config")
 	return c
 }

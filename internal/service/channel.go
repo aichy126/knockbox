@@ -1,8 +1,7 @@
 package service
 
 import (
-	"errors"
-	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"strings"
 	"time"
 
@@ -12,7 +11,8 @@ import (
 	"xorm.io/xorm"
 )
 
-var ErrChannelNotFound = errors.New("频道不存在")
+// ErrChannelNotFound app 里翻到一个已经被删掉的频道时也会撞上，所以带 code。
+var ErrChannelNotFound = uierr.New(uierr.ChannelNotFound)
 
 type Channel struct{ d *dao.DAO }
 
@@ -64,7 +64,7 @@ func (s *Channel) Create(userID int64, in ChannelInput) (*models.Channel, error)
 	}
 	if in.Level != nil {
 		if !validLevel(*in.Level) {
-			return nil, fmt.Errorf("打扰级别 %q 非法", *in.Level)
+			return nil, uierr.New(uierr.ChannelBadLevel, *in.Level)
 		}
 		ch.Level = *in.Level
 	}
@@ -76,7 +76,7 @@ func (s *Channel) Create(userID int64, in ChannelInput) (*models.Channel, error)
 			return err
 		}
 		if has {
-			return fmt.Errorf("频道 %s 已存在", id)
+			return uierr.New(uierr.ChannelExists, id)
 		}
 		_, err = sess.Insert(ch)
 		return err
@@ -91,7 +91,7 @@ func (s *Channel) Create(userID int64, in ChannelInput) (*models.Channel, error)
 // Meta 是不透明的，服务端不解析它的内容——名字改成什么是 app 的事。
 func (s *Channel) Update(userID int64, id string, in ChannelInput) (*models.Channel, error) {
 	if in.Level != nil && !validLevel(*in.Level) {
-		return nil, fmt.Errorf("打扰级别 %q 非法", *in.Level)
+		return nil, uierr.New(uierr.ChannelBadLevel, *in.Level)
 	}
 	err := s.d.Tx(func(sess *xorm.Session) error {
 		var ch models.Channel

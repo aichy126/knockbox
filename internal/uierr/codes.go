@@ -24,6 +24,11 @@ const (
 	PairTooFast  = "pair.too_fast"
 	LoginTooFast = "login.too_fast"
 
+	// 频道：app 里建频道、改打扰级别时
+	ChannelNotFound = "channel.not_found"
+	ChannelExists   = "channel.exists"
+	ChannelBadLevel = "channel.bad_level"
+
 	// 回复：客户端提交一个不在范围里的数值
 	ReplyOutOfRange = "reply.out_of_range"
 )
@@ -35,5 +40,6 @@ var All = []string{
 	SessionInvalid,
 	FileLinkInvalid, FileGone,
 	SendTooFast, JoinTooFast, PairTooFast, LoginTooFast,
+	ChannelNotFound, ChannelExists, ChannelBadLevel,
 	ReplyOutOfRange,
 }
