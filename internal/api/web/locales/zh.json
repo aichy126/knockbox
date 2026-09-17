@@ -81,6 +81,13 @@
     "pair.not_found": "配对码不存在。",
     "pair.too_fast": "配对尝试过于频繁，请一分钟后再试。",
     "pair.used": "这个配对码已经用过了。",
+    "reply.already_replied": "已经回复过了。",
+    "reply.bad_choice": "这个选项不在可选范围里，请更新到最新版本再试。",
+    "reply.bad_number": "这不是一个有效的数值。",
+    "reply.empty": "回复内容不能为空。",
+    "reply.expired": "回复时限已过，这次回复没有送出。",
+    "reply.message_gone": "这条消息不在了。",
+    "reply.not_open": "这条消息不能回复。",
     "reply.out_of_range": "请在 %g 到 %g 之间选一个值。",
     "send.too_fast": "发送过于频繁，请降低频率后重试。",
     "session.invalid": "设备的配对已失效，请重新配对。"

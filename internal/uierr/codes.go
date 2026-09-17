@@ -29,7 +29,14 @@ const (
 	ChannelExists   = "channel.exists"
 	ChannelBadLevel = "channel.bad_level"
 
-	// 回复：客户端提交一个不在范围里的数值
+	// 回复：用户在 app 里点完回复才会撞上这些
+	ReplyNotFound   = "reply.message_gone"
+	ReplyNotOpen    = "reply.not_open"
+	ReplyExpired    = "reply.expired"
+	ReplyDone       = "reply.already_replied"
+	ReplyBadChoice  = "reply.bad_choice"
+	ReplyBadNumber  = "reply.bad_number"
+	ReplyEmpty      = "reply.empty"
 	ReplyOutOfRange = "reply.out_of_range"
 )
 
@@ -41,5 +48,6 @@ var All = []string{
 	FileLinkInvalid, FileGone,
 	SendTooFast, JoinTooFast, PairTooFast, LoginTooFast,
 	ChannelNotFound, ChannelExists, ChannelBadLevel,
-	ReplyOutOfRange,
+	ReplyNotFound, ReplyNotOpen, ReplyExpired, ReplyDone,
+	ReplyBadChoice, ReplyBadNumber, ReplyEmpty, ReplyOutOfRange,
 }

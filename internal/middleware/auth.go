@@ -70,18 +70,18 @@ func SendAuth(d *dao.DAO) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tok := SendToken(c)
 		if tok == "" {
-			fail(c, http.StatusUnauthorized, "缺少频道 token")
+			fail(c, http.StatusUnauthorized, "missing channel token")
 			return
 		}
 		var ch models.Channel
 		has, err := d.Engine().Where("token = ?", tok).Get(&ch)
 		if err != nil {
-			fail(c, http.StatusInternalServerError, "查询频道失败: "+err.Error())
+			fail(c, http.StatusInternalServerError, "cannot look up the channel: "+err.Error())
 			return
 		}
 		// 不存在和已停用给同一句话：不让调用方用错误信息探测 token 是否存在。
 		if !has || ch.Status != models.StatusActive {
-			fail(c, http.StatusUnauthorized, "频道 token 无效")
+			fail(c, http.StatusUnauthorized, "invalid channel token")
 			return
 		}
 		c.Set(CtxChannel, &ch)
@@ -95,23 +95,23 @@ func DeviceAuth(d *dao.DAO) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		v := c.GetHeader("Authorization")
 		if !strings.HasPrefix(v, "Bearer ") {
-			fail(c, http.StatusUnauthorized, "缺少设备 token")
+			fail(c, http.StatusUnauthorized, "missing device token")
 			return
 		}
 		var dev models.Device
 		has, err := d.Engine().Where("auth_hash = ?", Hash(strings.TrimSpace(v[7:]))).Get(&dev)
 		if err != nil {
-			fail(c, http.StatusInternalServerError, "查询设备失败: "+err.Error())
+			fail(c, http.StatusInternalServerError, "cannot look up the device: "+err.Error())
 			return
 		}
 		if !has {
-			fail(c, http.StatusUnauthorized, "设备 token 无效")
+			fail(c, http.StatusUnauthorized, "invalid device token")
 			return
 		}
 		// 主动登出的设备要能明确知道自己被登出了，好回到配对界面；
 		// 而 APNs 失效（410）只是推不动，读历史照常，不该把人挡在外面。
 		if dev.Status == models.DeviceLoggedOut {
-			fail(c, http.StatusUnauthorized, "设备已登出，请重新配对")
+			fail(c, http.StatusUnauthorized, "this device was signed out; pair it again")
 			return
 		}
 		c.Set(CtxDevice, &dev)
