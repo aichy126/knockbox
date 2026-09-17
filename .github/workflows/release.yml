@@ -26,10 +26,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       packages: write
-    # secrets 只能在 job 级 env 里取：step 的 if 读不到 secrets 上下文，
-    # 写成 if: secrets.X 会让整份 workflow 在启动阶段解析失败。
-    env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
     steps:
       - uses: actions/checkout@v7
 
@@ -45,32 +43,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Docker Hub 是可选的：没配这两个 secret 就只推 ghcr，
-      # fork 出去的仓库打 tag 不会因为登录失败而整条挂掉。
-      - name: 决定推哪些 registry
-        id: reg
-        run: |
-          images="ghcr.io/${{ github.repository }}"
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
-            images="$images
-          docker.io/$DOCKERHUB_USERNAME/knockbox"
-          fi
-          {
-            echo "images<<EOF"
-            echo "$images"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: docker/login-action@v3
-        if: env.DOCKERHUB_USERNAME != ''
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - uses: docker/metadata-action@v6
         id: meta
         with:
-          images: ${{ steps.reg.outputs.images }}
+          images: ghcr.io/${{ github.repository }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -82,3 +58,44 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Docker Hub 单独一个 job，而且不重新构建：ghcr 那份已经推成功的镜像，
+  # 不该因为另一个 registry 的凭据出问题就一起作废。imagetools create 只搬
+  # manifest，所以两个 registry 里的 digest 一定是同一个。
+  #
+  # 没配那两个 secret 就整段跳过 —— fork 出去打 tag 仍然能发到自己的 ghcr。
+  mirror-to-docker-hub:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+
+      - uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/login-action@v3
+        if: env.DOCKERHUB_USERNAME != ''
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 把 manifest 从 ghcr 复制过去
+        if: env.DOCKERHUB_USERNAME != ''
+        env:
+          SRC_TAGS: ${{ needs.image.outputs.tags }}
+        run: |
+          printf '%s\n' "$SRC_TAGS" | while read -r src; do
+            [ -n "$src" ] || continue
+            # metadata-action 一行一个完整引用，取冒号后面那段当目标 tag
+            docker buildx imagetools create \
+              --tag "docker.io/$DOCKERHUB_USERNAME/knockbox:${src##*:}" "$src"
+          done
