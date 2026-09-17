@@ -100,6 +100,26 @@ lease, so two processes on the same database would push everything twice. If you
 horizontal scale, that needs a lease column first, and that is a design change worth
 an issue.
 
+## Adding a language
+
+The pages a stranger reaches — the pairing page, the sending guide and their error
+pages — are translated. Adding a language is **one file**:
+
+1. Copy `internal/api/web/locales/en.json` to `<code>.json`, where `<code>` is the
+   language subtag (`ja`, `de`, `pt-br`). The file name *is* the language; nothing
+   registers it anywhere else.
+2. Translate the values. Leave `lang_name` as that language's own name for itself
+   (`日本語`, not `Japanese`) — it is what the language switch shows. Set `html_lang`
+   only if it differs from the file name (`zh` → `zh-CN`).
+3. Keep the `%s` and `%d` placeholders, and keep their order.
+
+Keys you do not translate fall back to English, so a half-finished translation is
+still worth sending. A key that is **not** in `en.json` fails the tests — it is always
+either a typo or a key that was renamed without the translations following.
+
+The admin interface (`/login`, `/admin/*`) is not part of this — see the trade-offs
+section of the README for why.
+
 ## Commits
 
 Conventional-commit prefixes, as used in the existing history: `feat:`, `fix:`,
