@@ -70,17 +70,25 @@
   "err_issue_failed": "签发配对码失败: ",
   "err_q_r_failed": "生成二维码失败: ",
   "user_errors": {
+    "admin.session_expired": "登录状态已失效，请重新登录。",
     "channel.bad_level": "%q 不是合法的打扰级别。",
     "channel.exists": "已经有一个 id 是 %s 的频道了。",
     "channel.not_found": "这个频道已经不存在了。",
+    "device.not_found": "这台设备已经不在了，刷新一下页面。",
     "file.gone": "附件内容已不在服务器上。",
     "file.link_invalid": "附件链接无效或已过期。",
     "join.too_fast": "接入请求过于频繁，请稍后再试。",
     "login.too_fast": "登录尝试过于频繁，请一分钟后再试。",
+    "member.not_found": "这个成员已经不存在了。",
+    "message.not_found": "这条消息不存在，或者已经被删除了。",
     "pair.expired": "配对码已过期，请重新生成一个。",
+    "pair.no_target": "选一个成员，或者填一个名字新建一个。",
     "pair.not_found": "配对码不存在。",
     "pair.too_fast": "配对尝试过于频繁，请一分钟后再试。",
     "pair.used": "这个配对码已经用过了。",
+    "password.mismatch": "两次输入的新密码不一致，密码没有改动。",
+    "password.weak": "新密码至少 8 位，密码没有改动。",
+    "password.wrong": "当前密码不对，密码没有改动。",
     "quota.channels": "频道数已达上限（%d 个）。",
     "quota.daily": "最近 24 小时的消息数已达上限（%d 条）。",
     "quota.daily_with_eta": "最近 24 小时的消息数已达上限（%d 条），%s 后恢复。",
@@ -93,6 +101,7 @@
     "reply.not_open": "这条消息不能回复。",
     "reply.out_of_range": "请在 %g 到 %g 之间选一个值。",
     "send.too_fast": "发送过于频繁，请降低频率后重试。",
-    "session.invalid": "设备的配对已失效，请重新配对。"
+    "session.invalid": "设备的配对已失效，请重新配对。",
+    "setting.bad_value": "%s 的值不合法，没有保存。"
   }
 }
