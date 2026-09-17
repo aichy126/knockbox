@@ -55,6 +55,7 @@ func (s *Server) adminUser(c *gin.Context) {
 	b.WriteString(web.Stat("附件占用", bytesize.Decimal(usage.FileBytes), "muted", "派生图，原图不留"))
 	b.WriteString(`</div>`)
 
+	b.WriteString(s.actionError(c, "dev", uierr.DeviceNotFound))
 	b.WriteString(web.Card("频道", "", s.channelTable(u.Id)))
 	b.WriteString(web.Card("设备", `<a class="btn ghost sm" href="/admin/pair">`+web.Svg("qr", 14)+`配对新设备</a>`,
 		s.deviceTable(u.Id)))

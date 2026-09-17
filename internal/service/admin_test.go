@@ -180,9 +180,27 @@ func TestAdminMessagesFilters(t *testing.T) {
 
 func TestAdminMessageNotFound(t *testing.T) {
 	d, _ := newTestDAO(t)
-	_, _, err := NewAdmin(d).Message("不存在的uid", 1)
+	_, _, err := NewAdmin(d).Message("不存在的uid")
 	if e, ok := uierr.As(err); !ok || e.Code != uierr.MessageNotFound {
 		t.Fatalf("应当返回 message.not_found，得到 %v", err)
+	}
+}
+
+// 详情不按归属过滤：搜索页跨全站列出来的消息，详情页必须都打得开。
+func TestAdminMessageIgnoresOwnership(t *testing.T) {
+	d, _ := newTestDAO(t)
+	a := NewAdmin(d)
+	mustUser(t, d) // 管理员自己，id=1
+	other := mustMember(t, d, "别人")
+	ch := mustChannel(t, d, other)
+	uid := mustSend(t, d, ch, SendInput{Title: "别人的消息"})
+
+	m, _, err := a.Message(uid)
+	if err != nil {
+		t.Fatalf("别人的消息应当能打开：%v", err)
+	}
+	if m.UserId == 1 {
+		t.Fatal("这条消息本该属于别人，测试前提不成立")
 	}
 }
 

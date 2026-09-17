@@ -191,7 +191,7 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 // adminMessageDetail 单条消息。管理员能看到正文——这是自持服务器的固有属性，
 // 页面上不需要特意声明，但也不遮掩。
 func (s *Server) adminMessageDetail(c *gin.Context) {
-	msg, channel, err := s.admin().Message(c.Param("uid"), middleware.UserID(c))
+	msg, channel, err := s.admin().Message(c.Param("uid"))
 	if err != nil {
 		s.shell(c, "messages", []web.Crumb{web.C("消息"), web.C("未找到")},
 			web.Card("", "", web.Empty(s.userText(c, uierr.MessageNotFound))))
@@ -333,11 +333,41 @@ func statusBadge(status, httpStatus int, reason string) string {
 // ── 设备 ──────────────────────────────────────────────
 
 func (s *Server) adminDeviceDelete(c *gin.Context) {
-	s.admin().RevokeDevice(c.Param("id"), middleware.UserID(c))
-	c.Redirect(http.StatusFound, "/admin/devices")
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	owner, err := s.admin().RevokeDevice(id)
+	if err != nil {
+		// 回到点「注销」的那一页。拿不到属主（设备本来就不存在）就回成员列表。
+		back := "/admin/users"
+		if owner != 0 {
+			back = "/admin/users/" + strconv.FormatInt(owner, 10)
+		}
+		c.Redirect(http.StatusFound, back+"?dev=notfound")
+		return
+	}
+	c.Redirect(http.StatusFound, "/admin/users/"+strconv.FormatInt(owner, 10))
 }
 
 // ── 成员 ──────────────────────────────────────────────
+
+// actionError 把一次失败的写操作画成一条红条。
+//
+// 这些动作是 POST 完 302 走的，失败信息只能挂在 query 上带回来——
+// 和设置页的 ?pwd=wrong 是同一套做法。没有这一条，「点了没反应」就只是
+// 从「悄悄什么都没做」变成「悄悄跳回列表」，对用户没有任何区别。
+func (s *Server) actionError(c *gin.Context, param, notFoundCode string) string {
+	var msg string
+	switch c.Query(param) {
+	case "notfound":
+		msg = s.userText(c, notFoundCode)
+	case "error":
+		// 内部错误不进 uierr：那批 code 是按「用户的下一步」分的，
+		// 而这里用户没有下一步，只能重试或者去看日志。
+		msg = "操作没有成功。服务器日志里有原因。"
+	default:
+		return ""
+	}
+	return `<div class="err">` + web.E(msg) + `</div>`
+}
 
 func (s *Server) adminUsers(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
@@ -360,6 +390,7 @@ func (s *Server) adminUsers(c *gin.Context) {
 	fmt.Fprintf(&b, `<form class="tools" method="get"><input name="q" placeholder="搜成员名字" value="%s" style="min-width:220px">`+
 		`<button class="btn" type="submit">搜索</button>%s</form>`,
 		web.E(q), map[bool]string{true: `<a class="btn ghost" href="/admin/users">清空</a>`, false: ""}[q != ""])
+	b.WriteString(s.actionError(c, "member", uierr.MemberNotFound))
 
 	if len(rows) == 0 {
 		b.WriteString(web.Card("", "", web.Empty(map[bool]string{
@@ -424,7 +455,16 @@ func (s *Server) adminUserUnlimited(c *gin.Context) {
 	if c.PostForm("on") == "1" {
 		on = 1
 	}
-	s.admin().SetUnlimited(c.Param("id"), on)
+	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err := s.admin().SetUnlimited(id, on == 1); err != nil {
+		if e, ok := uierr.As(err); ok && e.Code == uierr.MemberNotFound {
+			c.Redirect(http.StatusFound, "/admin/users?member=notfound")
+			return
+		}
+		log.Error("admin: set unlimited failed", log.Any("error", err.Error()))
+		c.Redirect(http.StatusFound, "/admin/users?member=error")
+		return
+	}
 	c.Redirect(http.StatusFound, "/admin/users")
 }
 
