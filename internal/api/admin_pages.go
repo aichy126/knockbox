@@ -13,6 +13,7 @@ import (
 	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -27,42 +28,18 @@ func (s *Server) adminMessages(c *gin.Context) {
 
 	// 不按当前登录者过滤：管理界面的定位是看到这台服务器上的全部消息。
 	// 固定成 m.user_id = 登录者的话，公共实例上管理员将看不到任何其他人的消息。
-	sql := `SELECT m.id, m.uid, m.user_id, m.channel_id, m.type, m.title, m.summary,
-	          m.created_at, m.read_at,
-	          (SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id) AS total,
-	          (SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id AND p.status=1) AS ok,
-	          (SELECT meta FROM channel c WHERE c.id=m.channel_id) AS meta,
-	          (SELECT name FROM user u WHERE u.id=m.user_id) AS owner
-	        FROM message m WHERE m.deleted_at=0`
-	var args []any
-	// picker 传的是名字。查不到就【当作没筛选】而不是返回空——
-	// 名字打错时给一个空列表，用户会以为「这个人没有消息」。
-	if uid := s.userIDByName(userFilter); uid != 0 {
-		sql += " AND m.user_id=?"
-		args = append(args, uid)
+	rows, err := s.admin().Messages(service.MessageFilter{
+		Query: q,
+		// picker 传的是名字。查不到就【当作没筛选】而不是返回空——
+		// 名字打错时给一个空列表，用户会以为「这个人没有消息」。
+		UserId:    s.admin().MemberIdByName(strings.TrimSpace(userFilter)),
+		ChannelId: chFilter,
+		Before:    before,
+		Limit:     pageSize + 1,
+	})
+	if err != nil {
+		log.Error("admin: message search failed", log.Any("error", err.Error()))
 	}
-	if chFilter != "" {
-		sql += " AND m.channel_id=?"
-		args = append(args, chFilter)
-	}
-	if q != "" {
-		// LIKE 够用：万级数据量下它比引入 FTS5 的复杂度划算得多。
-		// 真到十万级再说——那时是另一个问题，不该现在预支。
-		sql += " AND (m.title LIKE ? OR m.summary LIKE ? OR m.body LIKE ?)"
-		like := "%" + q + "%"
-		args = append(args, like, like, like)
-	}
-	if before > 0 {
-		sql += " AND m.id<?"
-		args = append(args, before)
-	}
-	sql += " ORDER BY m.id DESC LIMIT ?"
-	args = append(args, pageSize+1)
-
-	// SQL 与参数分开传。QueryString(...any) 那个变参形态会把语句和用户输入
-	// 塞进同一个切片，静态分析分不出哪个是语句，人读起来也一样——
-	// SQL(sql, args...) 的第一个参数明确是语句。
-	rows, _ := s.DAO.Engine().SQL(sql, args...).QueryString()
 	more := len(rows) > pageSize
 	if more {
 		rows = rows[:pageSize]
@@ -81,26 +58,21 @@ func (s *Server) adminMessages(c *gin.Context) {
 			`<th>类型</th><th>标题</th><th>推送</th><th></th></tr></thead><tbody>`)
 		var last int64
 		for _, r := range rows {
-			ts, _ := strconv.ParseInt(r["created_at"], 10, 64)
-			last, _ = strconv.ParseInt(r["id"], 10, 64)
-			title := r["title"]
-			if title == "" {
-				title = r["summary"]
-			}
+			last = r.Id
 			readMark := ""
-			if r["read_at"] == "0" {
+			if r.ReadAt == 0 {
 				readMark = `<span class="badge info"><i></i>未读</span>`
 			}
 			fmt.Fprintf(&t, `<tr><td style="padding-left:16px" class="dim num">%s</td>`+
-				`<td class="dim"><a href="/admin/users/%s">%s</a></td>`+
+				`<td class="dim"><a href="/admin/users/%d">%s</a></td>`+
 				`<td><a href="/admin/channels/%s">%s</a></td>`+
 				`<td><span class="badge muted">%s</span></td>`+
 				`<td style="font-weight:500"><a href="/admin/messages/%s">%s</a></td>`+
 				`<td>%s</td><td style="text-align:right;padding-right:16px">%s</td></tr>`,
-				clock(ts), web.E(r["user_id"]), web.E(r["owner"]),
-				web.E(r["channel_id"]), web.E(channelName(r["meta"], r["channel_id"])),
-				web.E(r["type"]), web.E(r["uid"]), web.E(trunc(title, 42)),
-				pushBadge(r["ok"], r["total"]), readMark)
+				clock(r.Ctime), r.UserId, web.E(r.Owner),
+				web.E(r.ChannelId), web.E(channelName(r.Meta, r.ChannelId)),
+				web.E(r.Type), web.E(r.UID), web.E(trunc(firstNonEmpty(r.Title, r.Summary), 42)),
+				pushBadge(r.PushOK, r.PushTotal), readMark)
 		}
 		t.WriteString(`</tbody></table>`)
 		if more {
@@ -133,28 +105,20 @@ func emptyHint(q, ch string) string {
 // 服务端按名字反查，查不到就当没筛选——**不能因为名字打错就返回空列表**，
 // 那样用户会以为「这个人没有消息」。
 func (s *Server) userPicker(name, current, placeholder string) string {
-	rows, _ := s.DAO.Engine().QueryString("SELECT name FROM user ORDER BY id")
+	rows, err := s.admin().MemberNames()
+	if err != nil {
+		log.Error("admin: member names failed", log.Any("error", err.Error()))
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<span class="picker"><input name="%s" list="%s_opts" value="%s" placeholder="%s">`,
 		name, name, web.E(current), web.E(placeholder))
 	fmt.Fprintf(&b, `<datalist id="%s_opts">`, name)
 	for _, r := range rows {
-		fmt.Fprintf(&b, `<option value="%s">`, web.E(r["name"]))
+		fmt.Fprintf(&b, `<option value="%s">`, web.E(r.Name))
 	}
 	b.WriteString(`</datalist>`)
 	fmt.Fprintf(&b, `<span class="hint">%d 人</span></span>`, len(rows))
 	return b.String()
-}
-
-// userIDByName 按名字反查。空名字或查不到都返回 0 = 不筛选。
-func (s *Server) userIDByName(name string) int64 {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return 0
-	}
-	var id int64
-	_, _ = s.DAO.Engine().SQL("SELECT id FROM user WHERE name=?", name).Get(&id)
-	return id
 }
 
 // searchForm 成员 → 频道 的联动筛选。
@@ -163,12 +127,17 @@ func (s *Server) userIDByName(name string) int64 {
 // 一台服务器上的频道总数是几十量级，一次带出来远比一次往返便宜，
 // 而且切成员时列表立刻就变，不闪。
 func (s *Server) searchForm(q, userFilter, chFilter string) string {
-	chans, _ := s.DAO.Engine().QueryString(
-		"SELECT id, user_id, meta FROM channel ORDER BY user_id, created_at")
-	ownerRows, _ := s.DAO.Engine().QueryString("SELECT id, name FROM user")
-	ownerName := map[string]string{}
+	chans, err := s.admin().AllChannels()
+	if err != nil {
+		log.Error("admin: channel list failed", log.Any("error", err.Error()))
+	}
+	ownerRows, err := s.admin().MemberNames()
+	if err != nil {
+		log.Error("admin: member names failed", log.Any("error", err.Error()))
+	}
+	ownerName := map[int64]string{}
 	for _, r := range ownerRows {
-		ownerName[r["id"]] = r["name"]
+		ownerName[r.Id] = r.Name
 	}
 
 	var b strings.Builder
@@ -180,12 +149,12 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 	b.WriteString(`<select name="channel" id="cSel"><option value="">全部频道</option>`)
 	for _, ch := range chans {
 		sel := ""
-		if ch["id"] == chFilter {
+		if ch.Id == chFilter {
 			sel = " selected"
 		}
-		fmt.Fprintf(&b, `<option value="%s" data-user="%s" data-owner-name="%s"%s>%s</option>`,
-			web.E(ch["id"]), web.E(ch["user_id"]), web.E(ownerName[ch["user_id"]]), sel,
-			web.E(channelName(ch["meta"], ch["id"])))
+		fmt.Fprintf(&b, `<option value="%s" data-user="%d" data-owner-name="%s"%s>%s</option>`,
+			web.E(ch.Id), ch.UserId, web.E(ownerName[ch.UserId]), sel,
+			web.E(channelName(ch.Meta, ch.Id)))
 	}
 	b.WriteString(`</select>`)
 
@@ -222,16 +191,13 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 // adminMessageDetail 单条消息。管理员能看到正文——这是自持服务器的固有属性，
 // 页面上不需要特意声明，但也不遮掩。
 func (s *Server) adminMessageDetail(c *gin.Context) {
-	uid := middleware.UserID(c)
-	var m models.Message
-	ok, err := s.DAO.Engine().Where("uid=? AND user_id=?", c.Param("uid"), uid).Get(&m)
-	if err != nil || !ok {
+	msg, channel, err := s.admin().Message(c.Param("uid"), middleware.UserID(c))
+	if err != nil {
 		s.shell(c, "messages", []web.Crumb{web.C("消息"), web.C("未找到")},
-			web.Card("", "", web.Empty("这条消息不存在，或者已经被删除了。")))
+			web.Card("", "", web.Empty(s.userText(c, uierr.MessageNotFound))))
 		return
 	}
-	var ch models.Channel
-	_, _ = s.DAO.Engine().Where("id=?", m.ChannelId).Get(&ch)
+	m, ch := *msg, *channel
 
 	var b strings.Builder
 	title := m.Title
@@ -289,9 +255,10 @@ func (s *Server) replyPanel(m *models.Message) string {
 	fmt.Fprintf(&b, `<p class="dim">回调地址 <span class="mono">%s</span></p>`, web.E(m.ReplyWebhook))
 	b.WriteString(`</div>`)
 
-	rows, _ := s.DAO.Engine().QueryString(`
-		SELECT status, attempt, status_code, error, updated_at
-		FROM reply_hook WHERE message_id=? ORDER BY id`, m.Id)
+	rows, err := s.admin().ReplyHooks(m.Id)
+	if err != nil {
+		log.Error("admin: reply hooks failed", log.Any("error", err.Error()))
+	}
 	if len(rows) == 0 {
 		if m.Replied() {
 			// 回复和入队在同一个事务里，所以这种情况说明数据被写坏了。
@@ -302,23 +269,26 @@ func (s *Server) replyPanel(m *models.Message) string {
 	b.WriteString(`<table><thead><tr><th style="padding-left:16px">回调</th><th>尝试</th>` +
 		`<th>HTTP</th><th>原因</th><th>时间</th></tr></thead><tbody>`)
 	for _, r := range rows {
-		ts, _ := strconv.ParseInt(r["updated_at"], 10, 64)
-		fmt.Fprintf(&b, `<tr><td style="padding-left:16px">%s</td><td class="num">%s</td>`+
+		code := "—"
+		if r.StatusCode != 0 {
+			code = strconv.Itoa(r.StatusCode)
+		}
+		fmt.Fprintf(&b, `<tr><td style="padding-left:16px">%s</td><td class="num">%d</td>`+
 			`<td class="num dim">%s</td><td class="dim">%s</td><td class="dim num">%s</td></tr>`,
-			hookBadge(r["status"]), web.E(r["attempt"]),
-			web.E(firstNonEmpty(r["status_code"], "—")), web.E(trunc(r["error"], 60)), clock(ts))
+			hookBadge(r.Status), r.Attempt,
+			web.E(code), web.E(trunc(r.Error, 60)), clock(r.Utime))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
 }
 
-func hookBadge(status string) string {
+func hookBadge(status int) string {
 	switch status {
-	case "1":
+	case 1:
 		return `<span class="badge ok"><i></i>已送达</span>`
-	case "2":
+	case 2:
 		return `<span class="badge warn"><i></i>重试中</span>`
-	case "3":
+	case 3:
 		// 「已放弃」要显眼：发送方永远收不到这个答案了，而它自己不会知道。
 		return `<span class="badge err"><i></i>已放弃</span>`
 	}
@@ -326,11 +296,10 @@ func hookBadge(status string) string {
 }
 
 func (s *Server) pushLogTable(msgID int64) string {
-	rows, _ := s.DAO.Engine().QueryString(`
-		SELECT p.status, p.http_status, p.reason, p.attempts, p.apns_id, p.updated_at,
-		       d.name, d.apns_env
-		FROM push_log p LEFT JOIN device d ON d.id=p.device_id
-		WHERE p.message_id=? ORDER BY p.id`, msgID)
+	rows, err := s.admin().PushLog(msgID)
+	if err != nil {
+		log.Error("admin: push log failed", log.Any("error", err.Error()))
+	}
 	if len(rows) == 0 {
 		return web.Empty("没有投递记录。频道静音时消息照常存档，但不会排推送。")
 	}
@@ -338,23 +307,22 @@ func (s *Server) pushLogTable(msgID int64) string {
 	b.WriteString(`<table><thead><tr><th style="padding-left:16px">设备</th><th>环境</th>` +
 		`<th>状态</th><th>尝试</th><th>apns-id</th><th>时间</th></tr></thead><tbody>`)
 	for _, r := range rows {
-		ts, _ := strconv.ParseInt(r["updated_at"], 10, 64)
 		fmt.Fprintf(&b, `<tr><td style="padding-left:16px">%s</td><td class="dim">%s</td>`+
-			`<td>%s</td><td class="num">%s</td><td class="mono dim">%s</td><td class="dim num">%s</td></tr>`,
-			web.E(r["name"]), web.E(r["apns_env"]), statusBadge(r["status"], r["http_status"], r["reason"]),
-			web.E(r["attempts"]), web.E(trunc(r["apns_id"], 12)), clock(ts))
+			`<td>%s</td><td class="num">%d</td><td class="mono dim">%s</td><td class="dim num">%s</td></tr>`,
+			web.E(r.Device), web.E(r.APNsEnv), statusBadge(r.Status, r.HTTPStatus, r.Reason),
+			r.Attempts, web.E(trunc(r.APNsID, 12)), clock(r.Utime))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
 }
 
-func statusBadge(status, http, reason string) string {
+func statusBadge(status, httpStatus int, reason string) string {
 	switch status {
-	case "1":
-		return `<span class="badge ok"><i></i>已送达 ` + web.E(http) + `</span>`
-	case "3":
+	case 1:
+		return `<span class="badge ok"><i></i>已送达 ` + web.E(strconv.Itoa(httpStatus)) + `</span>`
+	case 3:
 		return `<span class="badge err"><i></i>` + web.E(firstNonEmpty(reason, "失败")) + `</span>`
-	case "2":
+	case 2:
 		return `<span class="badge warn"><i></i>重试中</span>`
 	}
 	return `<span class="badge muted"><i></i>排队中</span>`
@@ -365,8 +333,7 @@ func statusBadge(status, http, reason string) string {
 // ── 设备 ──────────────────────────────────────────────
 
 func (s *Server) adminDeviceDelete(c *gin.Context) {
-	uid := middleware.UserID(c)
-	_, _ = s.DAO.Engine().Exec("DELETE FROM device WHERE id=? AND user_id=?", c.Param("id"), uid)
+	s.admin().RevokeDevice(c.Param("id"), middleware.UserID(c))
 	c.Redirect(http.StatusFound, "/admin/devices")
 }
 
@@ -382,21 +349,10 @@ func (s *Server) adminUsers(c *gin.Context) {
 
 	// 公共实例上成员会有几百上千，一次全渲染出来页面会很重，
 	// 而且没有搜索的话找一个人只能靠浏览器的 Ctrl+F。
-	where, args := "", []any{}
-	if q != "" {
-		where = " WHERE u.name LIKE ?"
-		args = append(args, "%"+q+"%")
+	rows, total, err := s.admin().Members(q, pageSize, (page-1)*pageSize)
+	if err != nil {
+		log.Error("admin: member list failed", log.Any("error", err.Error()))
 	}
-	var total int64
-	_, _ = s.DAO.Engine().SQL("SELECT COUNT(*) FROM user u"+where, args...).Get(&total)
-
-	sql := `SELECT u.id, u.name, u.role, u.status, u.last_login_at, u.created_at, u.unlimited,
-	          (SELECT COUNT(*) FROM device d WHERE d.user_id=u.id) AS devices,
-	          (SELECT COUNT(*) FROM channel c WHERE c.user_id=u.id) AS channels,
-	          (SELECT COUNT(*) FROM message m WHERE m.user_id=u.id AND m.deleted_at=0) AS msgs
-	        FROM user u` + where + " ORDER BY u.id LIMIT ? OFFSET ?"
-	args = append(args, pageSize, (page-1)*pageSize)
-	rows, _ := s.DAO.Engine().SQL(sql, args...).QueryString()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<div class="ph"><div><h1>成员</h1><div class="sub">这台服务器上的收件身份 · 共 %d 人</div></div>`+
@@ -418,17 +374,17 @@ func (s *Server) adminUsers(c *gin.Context) {
 	t.WriteString(`<table><thead><tr><th style="padding-left:16px">名字</th><th>角色</th>` +
 		`<th>设备</th><th>频道</th><th>消息</th><th>最后登录</th><th>配额</th></tr></thead><tbody>`)
 	for _, r := range rows {
-		login, _ := strconv.ParseInt(r["last_login_at"], 10, 64)
 		role := `<span class="badge muted">收件人</span>`
-		if r["role"] == models.RoleAdmin {
+		if r.Role == models.RoleAdmin {
 			role = `<span class="badge info">管理员</span>`
 		}
 		fmt.Fprintf(&t, `<tr><td style="padding-left:16px;font-weight:500">`+
-			`<a href="/admin/users/%s">%s</a></td><td>%s</td>`+
-			`<td class="num">%s</td><td class="num">%s</td><td class="num">%s</td>`+
+			`<a href="/admin/users/%d">%s</a></td><td>%s</td>`+
+			`<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td>`+
 			`<td class="dim">%s</td><td style="text-align:right;padding-right:16px">%s</td></tr>`,
-			web.E(r["id"]), web.E(r["name"]), role, web.E(r["devices"]), web.E(r["channels"]),
-			web.E(r["msgs"]), ago(login), unlimitedToggle(r["id"], r["unlimited"] != "0"))
+			r.Id, web.E(r.Name), role, r.Devices, r.Channels,
+			r.Messages, ago(r.LastLoginAt),
+			unlimitedToggle(strconv.FormatInt(r.Id, 10), r.Unlimited != 0))
 	}
 	t.WriteString(`</tbody></table>`)
 	if int64(page*pageSize) < total {
@@ -468,7 +424,7 @@ func (s *Server) adminUserUnlimited(c *gin.Context) {
 	if c.PostForm("on") == "1" {
 		on = 1
 	}
-	_, _ = s.DAO.Engine().Exec("UPDATE user SET unlimited=? WHERE id=?", on, c.Param("id"))
+	s.admin().SetUnlimited(c.Param("id"), on)
 	c.Redirect(http.StatusFound, "/admin/users")
 }
 

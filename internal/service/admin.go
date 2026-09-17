@@ -1,0 +1,448 @@
+package service
+
+import (
+	"time"
+
+	"github.com/aichy126/knockbox/internal/dao"
+	"github.com/aichy126/knockbox/internal/models"
+	"github.com/aichy126/knockbox/internal/uierr"
+)
+
+// Admin 管理后台的查询与写操作。
+//
+// 这一层收的是后台【渲染器无关】的那部分：SQL 与它的结果。服务端直出的 HTML
+// 和后台的 JSON 接口读的是同一份数据，两边各写一遍 SQL 的话，一个修复就要打
+// 两次补丁，而测试只能钉住其中一次。
+//
+// 这些查询是统计与钻取，正是 dao.Engine() 注释里列出的裸 SQL 合法用途，
+// 所以这里不做仓储抽象，只把语句从 handler 里抬上来。
+//
+// 结果一律用带类型的结构体接，不用 QueryString()。后者返回的全是字符串，
+// 调用方要自己 strconv 一遍，而列名拼错时拿到的是零值而不是错误——
+// 「某个数字永远显示 0」这类缺陷不会报错，只能靠人看出来。
+type Admin struct{ d *dao.DAO }
+
+func NewAdmin(d *dao.DAO) *Admin { return &Admin{d: d} }
+
+// ── 概览 ──────────────────────────────────────────────
+
+// OverviewStat 概览页的全部数字。
+type OverviewStat struct {
+	Messages        int64
+	MessagesPrev    int64
+	Channels        int64
+	ChannelsMuted   int64
+	DevicesPushable int64
+	DevicesSandbox  int64
+	PushOK          int64
+	PushFailed      int64
+	PushRetrying    int64
+}
+
+// Rate 推送成功率。没推过时返回 ok=false —— 「成功率 0%」和「没推过」
+// 在界面上是两句不同的话，合成一个数字就分不出来了。
+func (o OverviewStat) Rate() (float64, bool) {
+	t := o.PushOK + o.PushFailed
+	if t == 0 {
+		return 0, false
+	}
+	return float64(o.PushOK) * 100 / float64(t), true
+}
+
+// Overview 统计 since 之后的窗口。prev 是紧挨着的上一个等长窗口。
+func (a *Admin) Overview(uid, since, window int64) (OverviewStat, error) {
+	e := a.d.Engine()
+	var o OverviewStat
+	now := time.Now().Unix()
+	for _, q := range []struct {
+		dst  *int64
+		sql  string
+		args []any
+	}{
+		{&o.Messages, "SELECT COUNT(*) FROM message WHERE user_id=? AND created_at>=?", []any{uid, since}},
+		{&o.MessagesPrev, "SELECT COUNT(*) FROM message WHERE user_id=? AND created_at>=? AND created_at<?", []any{uid, since - window, since}},
+		{&o.Channels, "SELECT COUNT(*) FROM channel WHERE user_id=?", []any{uid}},
+		{&o.ChannelsMuted, "SELECT COUNT(*) FROM channel WHERE user_id=? AND (muted<>0 OR mute_until>?)", []any{uid, now}},
+		{&o.DevicesPushable, "SELECT COUNT(*) FROM device WHERE user_id=? AND apns_token<>''", []any{uid}},
+		{&o.DevicesSandbox, "SELECT COUNT(*) FROM device WHERE user_id=? AND apns_env='sandbox'", []any{uid}},
+		{&o.PushOK, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
+		             WHERE m.user_id=? AND p.created_at>=? AND p.status=1`, []any{uid, since}},
+		{&o.PushFailed, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
+		                 WHERE m.user_id=? AND p.created_at>=? AND p.status=3`, []any{uid, since}},
+		{&o.PushRetrying, `SELECT COUNT(*) FROM push_log p JOIN message m ON m.id=p.message_id
+		                   WHERE m.user_id=? AND p.created_at>=? AND p.status IN (0,2)`, []any{uid, since}},
+	} {
+		if _, err := e.SQL(q.sql, q.args...).Get(q.dst); err != nil {
+			return o, err
+		}
+	}
+	return o, nil
+}
+
+// FailureRow 推送失败的一种。按 reason + http_status 聚合。
+type FailureRow struct {
+	Reason     string `xorm:"'reason'"`
+	HTTPStatus int    `xorm:"'http_status'"`
+	Count      int64  `xorm:"'n'"`
+}
+
+func (a *Admin) Failures(uid, since int64, limit int) ([]FailureRow, error) {
+	var out []FailureRow
+	err := a.d.Engine().SQL(`
+		SELECT COALESCE(NULLIF(p.reason,''),'(无原因)') AS reason, p.http_status, COUNT(*) AS n
+		FROM push_log p JOIN message m ON m.id=p.message_id
+		WHERE m.user_id=? AND p.created_at>=? AND p.status=3
+		GROUP BY reason, p.http_status ORDER BY n DESC LIMIT ?`, uid, since, limit).Find(&out)
+	return out, err
+}
+
+// ── 消息 ──────────────────────────────────────────────
+
+// MessageRow 后台看到的一条消息。
+//
+// Body / Extra 只在需要正文的地方查（消息流、消息详情），列表不带——
+// 一页 40 条正文是几百 KB，而列表一个字都不显示它。
+type MessageRow struct {
+	Id        int64  `xorm:"'id'"`
+	UID       string `xorm:"'uid'"`
+	UserId    int64  `xorm:"'user_id'"`
+	Owner     string `xorm:"'owner'"` // user.name
+	ChannelId string `xorm:"'channel_id'"`
+	Meta      string `xorm:"'meta'"` // channel.meta，取名字用
+	Type      string `xorm:"'type'"`
+	Title     string `xorm:"'title'"`
+	Summary   string `xorm:"'summary'"`
+	Body      string `xorm:"'body'"`
+	Extra     string `xorm:"'extra'"`
+	Ctime     int64  `xorm:"'created_at'"`
+	ReadAt    int64  `xorm:"'read_at'"`
+
+	ReplyWebhook string `xorm:"'reply_webhook'"`
+	Reply        string `xorm:"'reply'"`
+	RepliedAt    int64  `xorm:"'replied_at'"`
+	ReplyUntil   int64  `xorm:"'reply_until'"`
+
+	PushTotal int64 `xorm:"'total'"`
+	PushOK    int64 `xorm:"'ok'"`
+}
+
+// MessageFilter 消息检索的条件。零值 = 不筛。
+type MessageFilter struct {
+	Query     string // 匹配 title / summary / body
+	UserId    int64
+	ChannelId string
+	Before    int64 // 游标：只取 id 比它小的
+	Limit     int
+	WithBody  bool // 要不要带 body / extra
+}
+
+const pushCounts = `(SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id) AS total,
+	       (SELECT COUNT(*) FROM push_log p WHERE p.message_id=m.id AND p.status=1) AS ok`
+
+// Messages 按条件检索，按 id 倒序。消息搜索与频道消息流共用这一个。
+func (a *Admin) Messages(f MessageFilter) ([]MessageRow, error) {
+	cols := `m.id, m.uid, m.user_id, m.channel_id, m.type, m.title, m.summary,
+	          m.created_at, m.read_at,`
+	if f.WithBody {
+		cols += ` m.body, m.extra, m.reply_webhook, m.reply, m.replied_at, m.reply_until,`
+	}
+	sql := `SELECT ` + cols + pushCounts + `,
+	       (SELECT meta FROM channel c WHERE c.id=m.channel_id) AS meta,
+	       (SELECT name FROM user u WHERE u.id=m.user_id) AS owner
+	     FROM message m WHERE m.deleted_at=0`
+	var args []any
+	if f.UserId != 0 {
+		sql += " AND m.user_id=?"
+		args = append(args, f.UserId)
+	}
+	if f.ChannelId != "" {
+		sql += " AND m.channel_id=?"
+		args = append(args, f.ChannelId)
+	}
+	if f.Query != "" {
+		// LIKE 够用：万级数据量下它比引入 FTS5 的复杂度划算得多。
+		// 真到十万级再说——那时是另一个问题，不该现在预支。
+		sql += " AND (m.title LIKE ? OR m.summary LIKE ? OR m.body LIKE ?)"
+		like := "%" + f.Query + "%"
+		args = append(args, like, like, like)
+	}
+	if f.Before > 0 {
+		sql += " AND m.id<?"
+		args = append(args, f.Before)
+	}
+	sql += " ORDER BY m.id DESC LIMIT ?"
+	args = append(args, f.Limit)
+
+	var out []MessageRow
+	// SQL 与参数分开传。QueryString(...any) 那个变参形态会把语句和用户输入
+	// 塞进同一个切片，静态分析分不出哪个是语句，人读起来也一样。
+	err := a.d.Engine().SQL(sql, args...).Find(&out)
+	return out, err
+}
+
+// RecentMessages 概览页的「最近消息」，按登录者过滤。
+func (a *Admin) RecentMessages(uid int64, limit int) ([]MessageRow, error) {
+	var out []MessageRow
+	err := a.d.Engine().SQL(`
+		SELECT m.id, m.uid, m.user_id, m.channel_id, m.type, m.title, m.summary, m.created_at, m.read_at,
+		       `+pushCounts+`,
+		       (SELECT meta FROM channel c WHERE c.id=m.channel_id) AS meta
+		FROM message m WHERE m.user_id=? AND m.deleted_at=0
+		ORDER BY m.id DESC LIMIT ?`, uid, limit).Find(&out)
+	return out, err
+}
+
+// Message 一条消息的详情，连同它所属的频道。
+//
+// 【按 user_id 过滤是现状，不是想要的样子】：列表页刻意跨全站，详情页却只认
+// 自己的，于是从列表点进别人的消息会落到「这条消息不存在」。这是 #15 要修的
+// 三个缺陷之一，本次只是把语句原样抬上来，修复在下一个 PR——
+// 把「搬」和「改」混在一个 diff 里，reviewer 就得逐行分辨哪一行是哪件事。
+func (a *Admin) Message(uid string, ownerId int64) (*models.Message, *models.Channel, error) {
+	var m models.Message
+	ok, err := a.d.Engine().Where("uid=? AND user_id=?", uid, ownerId).Get(&m)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, uierr.New(uierr.MessageNotFound)
+	}
+	var ch models.Channel
+	if _, err := a.d.Engine().Where("id=?", m.ChannelId).Get(&ch); err != nil {
+		return nil, nil, err
+	}
+	return &m, &ch, nil
+}
+
+// PushLogRow 一次投递尝试。
+type PushLogRow struct {
+	Status     int    `xorm:"'status'"`
+	HTTPStatus int    `xorm:"'http_status'"`
+	Reason     string `xorm:"'reason'"`
+	Attempts   int    `xorm:"'attempts'"`
+	APNsID     string `xorm:"'apns_id'"`
+	Utime      int64  `xorm:"'updated_at'"`
+	Device     string `xorm:"'name'"`
+	APNsEnv    string `xorm:"'apns_env'"`
+}
+
+func (a *Admin) PushLog(msgID int64) ([]PushLogRow, error) {
+	var out []PushLogRow
+	err := a.d.Engine().SQL(`
+		SELECT p.status, p.http_status, p.reason, p.attempts, p.apns_id, p.updated_at,
+		       d.name, d.apns_env
+		FROM push_log p LEFT JOIN device d ON d.id=p.device_id
+		WHERE p.message_id=? ORDER BY p.id`, msgID).Find(&out)
+	return out, err
+}
+
+// ReplyHookRow 一次回调投递。
+type ReplyHookRow struct {
+	Status     int    `xorm:"'status'"`
+	Attempt    int    `xorm:"'attempt'"`
+	StatusCode int    `xorm:"'status_code'"`
+	Error      string `xorm:"'error'"`
+	Utime      int64  `xorm:"'updated_at'"`
+}
+
+func (a *Admin) ReplyHooks(msgID int64) ([]ReplyHookRow, error) {
+	var out []ReplyHookRow
+	err := a.d.Engine().SQL(`
+		SELECT status, attempt, status_code, error, updated_at
+		FROM reply_hook WHERE message_id=? ORDER BY id`, msgID).Find(&out)
+	return out, err
+}
+
+// ── 成员 ──────────────────────────────────────────────
+
+// MemberRow 成员列表里的一行。
+type MemberRow struct {
+	Id          int64  `xorm:"'id'"`
+	Name        string `xorm:"'name'"`
+	Role        string `xorm:"'role'"`
+	Status      int    `xorm:"'status'"`
+	LastLoginAt int64  `xorm:"'last_login_at'"`
+	Ctime       int64  `xorm:"'created_at'"`
+	Unlimited   int    `xorm:"'unlimited'"`
+	Devices     int64  `xorm:"'devices'"`
+	Channels    int64  `xorm:"'channels'"`
+	Messages    int64  `xorm:"'msgs'"`
+}
+
+// Members 成员列表。q 按名字模糊匹配，total 是匹配到的总数。
+func (a *Admin) Members(q string, limit, offset int) (rows []MemberRow, total int64, err error) {
+	where, args := "", []any{}
+	if q != "" {
+		where = " WHERE u.name LIKE ?"
+		args = append(args, "%"+q+"%")
+	}
+	if _, err = a.d.Engine().SQL("SELECT COUNT(*) FROM user u"+where, args...).Get(&total); err != nil {
+		return nil, 0, err
+	}
+	sql := `SELECT u.id, u.name, u.role, u.status, u.last_login_at, u.created_at, u.unlimited,
+	          (SELECT COUNT(*) FROM device d WHERE d.user_id=u.id) AS devices,
+	          (SELECT COUNT(*) FROM channel c WHERE c.user_id=u.id) AS channels,
+	          (SELECT COUNT(*) FROM message m WHERE m.user_id=u.id AND m.deleted_at=0) AS msgs
+	        FROM user u` + where + " ORDER BY u.id LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	err = a.d.Engine().SQL(sql, args...).Find(&rows)
+	return rows, total, err
+}
+
+// Member 一个成员。
+func (a *Admin) Member(id int64) (*models.User, error) {
+	var u models.User
+	ok, err := a.d.Engine().ID(id).Get(&u)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, uierr.New(uierr.MemberNotFound)
+	}
+	return &u, nil
+}
+
+// NameRow id ↔ 名字。成员下拉与筛选器用。
+type NameRow struct {
+	Id   int64  `xorm:"'id'"`
+	Name string `xorm:"'name'"`
+}
+
+func (a *Admin) MemberNames() ([]NameRow, error) {
+	var out []NameRow
+	err := a.d.Engine().SQL("SELECT id, name FROM user ORDER BY id").Find(&out)
+	return out, err
+}
+
+// MemberIdByName 按名字反查。空名字或查不到都返回 0 = 不筛选。
+//
+// 查不到当作没筛选而不是返回空列表：名字打错时给一个空列表，
+// 用户会以为「这个人没有消息」。
+func (a *Admin) MemberIdByName(name string) int64 {
+	if name == "" {
+		return 0
+	}
+	var id int64
+	_, _ = a.d.Engine().SQL("SELECT id FROM user WHERE name=?", name).Get(&id)
+	return id
+}
+
+// MemberName 一个成员的名字。查不到返回空串——它只用在展示上。
+func (a *Admin) MemberName(id int64) string {
+	var name string
+	_, _ = a.d.Engine().SQL("SELECT name FROM user WHERE id=?", id).Get(&name)
+	return name
+}
+
+// CreateMember 建一个纯收件人：没有用户名密码，登录不了后台。
+func (a *Admin) CreateMember(name string) (*models.User, error) {
+	now := time.Now().Unix()
+	u := &models.User{Name: name, Role: models.RoleMember,
+		Status: models.StatusActive, Ctime: now, Utime: now}
+	if _, err := a.d.Engine().Insert(u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// SetUnlimited 配额豁免。
+//
+// 【错误被吞掉是现状】：DB 出错和「这个 id 根本不存在」在界面上都表现为
+// 一次成功的重定向。同样是 #15 要修的缺陷之一，修复在下一个 PR。
+func (a *Admin) SetUnlimited(id string, on int) {
+	_, _ = a.d.Engine().Exec("UPDATE user SET unlimited=? WHERE id=?", on, id)
+}
+
+// ── 频道 ──────────────────────────────────────────────
+
+// ChannelRow 成员详情里的频道一行。
+type ChannelRow struct {
+	Id        string `xorm:"'id'"`
+	UserId    int64  `xorm:"'user_id'"`
+	Meta      string `xorm:"'meta'"`
+	Muted     int    `xorm:"'muted'"`
+	MuteUntil int64  `xorm:"'mute_until'"`
+	Sound     string `xorm:"'sound'"`
+	Level     string `xorm:"'level'"`
+	Messages  int64  `xorm:"'n'"`
+	LastMsgAt int64  `xorm:"'last'"`
+}
+
+func (a *Admin) MemberChannels(uid int64) ([]ChannelRow, error) {
+	var out []ChannelRow
+	err := a.d.Engine().SQL(`
+		SELECT c.id, c.meta, c.muted, c.mute_until, c.sound, c.level,
+		       (SELECT COUNT(*) FROM message m WHERE m.channel_id=c.id AND m.deleted_at=0) AS n,
+		       (SELECT COALESCE(MAX(created_at),0) FROM message m WHERE m.channel_id=c.id) AS last
+		FROM channel c WHERE c.user_id=? ORDER BY c.created_at`, uid).Find(&out)
+	return out, err
+}
+
+// Channel 频道及其属主。
+func (a *Admin) Channel(id string) (*models.Channel, *models.User, error) {
+	var ch models.Channel
+	ok, err := a.d.Engine().Where("id=?", id).Get(&ch)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, uierr.New(uierr.ChannelNotFound)
+	}
+	var owner models.User
+	if _, err := a.d.Engine().ID(ch.UserId).Get(&owner); err != nil {
+		return nil, nil, err
+	}
+	return &ch, &owner, nil
+}
+
+// ChannelMaxMsgId 清空频道时的快照上界。
+func (a *Admin) ChannelMaxMsgId(id string) (int64, error) {
+	var maxID int64
+	_, err := a.d.Engine().SQL("SELECT COALESCE(MAX(id),0) FROM message WHERE channel_id=?", id).Get(&maxID)
+	return maxID, err
+}
+
+// AllChannels 搜索页的频道下拉：一次全带出来，在前端按成员过滤。
+func (a *Admin) AllChannels() ([]ChannelRow, error) {
+	var out []ChannelRow
+	err := a.d.Engine().SQL(
+		"SELECT id, user_id, meta FROM channel ORDER BY user_id, created_at").Find(&out)
+	return out, err
+}
+
+// ── 设备 ──────────────────────────────────────────────
+
+// DeviceRow 成员详情里的设备一行。APNs token 本身不出这一层。
+type DeviceRow struct {
+	Id         int64  `xorm:"'id'"`
+	Name       string `xorm:"'name'"`
+	Platform   string `xorm:"'platform'"`
+	Model      string `xorm:"'model'"`
+	OSVersion  string `xorm:"'os_version'"`
+	AppVersion string `xorm:"'app_version'"`
+	APNsEnv    string `xorm:"'apns_env'"`
+	APNsToken  string `xorm:"'apns_token'"`
+	LastSeenAt int64  `xorm:"'last_seen_at'"`
+	SyncRev    int64  `xorm:"'sync_rev'"`
+	Status     int    `xorm:"'status'"`
+}
+
+// CanPush 有 token 才收得到推送。
+func (d DeviceRow) CanPush() bool { return d.APNsToken != "" }
+
+func (a *Admin) MemberDevices(uid int64) ([]DeviceRow, error) {
+	var out []DeviceRow
+	err := a.d.Engine().SQL(`
+		SELECT id, name, platform, model, os_version, app_version, apns_env,
+		       apns_token, last_seen_at, sync_rev, status
+		FROM device WHERE user_id=? ORDER BY created_at DESC`, uid).Find(&out)
+	return out, err
+}
+
+// RevokeDevice 后台注销一台设备。
+//
+// 【三处都是现状，都要在下一个 PR 里修】：硬删而不是软登出（app 侧走的是
+// Device.Logout）、按当前登录者过滤（于是删别人的设备静默无操作）、错误被吞掉。
+func (a *Admin) RevokeDevice(deviceID string, ownerId int64) {
+	_, _ = a.d.Engine().Exec("DELETE FROM device WHERE id=? AND user_id=?", deviceID, ownerId)
+}
