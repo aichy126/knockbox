@@ -51,7 +51,7 @@ func TestSendIsRateLimitedPerChannel(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("超过速率应当返回 429，得到 %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "频繁") {
+	if !strings.Contains(w.Body.String(), "too fast") {
 		t.Errorf("提示要说清是频率问题：%s", w.Body.String())
 	}
 
@@ -144,7 +144,7 @@ func TestBatchReportsRateLimitPerToken(t *testing.T) {
 	if out.Data.Results[0].OK {
 		t.Error("a 的额度已用光，应当报错")
 	}
-	if !strings.Contains(out.Data.Results[0].Error, "频繁") {
+	if !strings.Contains(out.Data.Results[0].Error, "too fast") {
 		t.Errorf("a 的错误应当说明是频率问题：%q", out.Data.Results[0].Error)
 	}
 	if !out.Data.Results[1].OK {

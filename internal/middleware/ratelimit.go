@@ -66,10 +66,17 @@ func (r *RateLimit) reap() {
 }
 
 // Gin 返回一个按客户端 IP 限流的中间件。
-func (r *RateLimit) Gin(msg string) gin.HandlerFunc {
+// Gin 限流中间件。收的是 uierr 的 code 而不是一句现成的话：
+// 被限的是一个人（配对、接入都发生在他面前），该用他的语言说这句。
+// render 由 api 层给进来——middleware 不该认识语料。
+func (r *RateLimit) Gin(code string, render func(*gin.Context, string, ...any) string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !r.Allow(c.ClientIP()) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"code": 1, "msg": msg})
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"code": 1,
+				"msg":  render(c, code),
+				"data": gin.H{"error_code": code},
+			})
 			return
 		}
 		c.Next()

@@ -39,7 +39,7 @@ func (s *Server) view(ch *models.Channel) channelView {
 func (s *Server) listChannels(c *gin.Context) {
 	out, err := service.NewChannel(s.DAO).List(middleware.UserID(c))
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	rows := make([]channelView, 0, len(out))
@@ -61,7 +61,7 @@ func (s *Server) createChannel(c *gin.Context) {
 	}
 	ch, err := service.NewChannel(s.DAO).Create(middleware.UserID(c), in)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, s.view(ch))
@@ -79,7 +79,7 @@ func (s *Server) updateChannel(c *gin.Context) {
 			res.Rfail(c, "频道不存在")
 			return
 		}
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, s.view(ch))
@@ -94,12 +94,12 @@ func (s *Server) deleteChannel(c *gin.Context) {
 	id := c.Param("id")
 	if c.Query("purge") == "1" {
 		if _, err := service.NewSync(s.DAO).PurgeChannel(uid, id, 0); err != nil {
-			res.Rfail(c, err.Error())
+			s.fail(c, err)
 			return
 		}
 	}
 	if err := service.NewChannel(s.DAO).Delete(uid, id); err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, gin.H{"id": id})
@@ -108,7 +108,7 @@ func (s *Server) deleteChannel(c *gin.Context) {
 func (s *Server) rotateChannelToken(c *gin.Context) {
 	ch, err := service.NewChannel(s.DAO).RotateToken(middleware.UserID(c), c.Param("id"))
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, s.view(ch))

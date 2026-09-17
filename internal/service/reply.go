@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"math"
 	"strconv"
 	"strings"
@@ -257,7 +258,7 @@ func validateNumber(spec *replyView, text *string) error {
 		return errors.New(errReplyNotOpen)
 	}
 	if v < *spec.Min || v > *spec.Max {
-		return fmt.Errorf("请在 %g 到 %g 之间选一个值", *spec.Min, *spec.Max)
+		return uierr.New(uierr.ReplyOutOfRange, *spec.Min, *spec.Max)
 	}
 	// 落到网格上，再夹回范围内：靠近上界时四舍五入可能越界一格。
 	steps := math.Round((v - *spec.Min) / *spec.Step)

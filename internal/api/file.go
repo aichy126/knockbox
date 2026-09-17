@@ -12,6 +12,7 @@ import (
 	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -76,13 +77,13 @@ func (s *Server) serveFile(c *gin.Context) {
 	}
 	fh, mime, err := s.Files.Open(f, c.Query("t") == "1")
 	if err != nil {
-		c.String(http.StatusNotFound, "附件内容已不在")
+		s.notFoundText(c, uierr.FileGone)
 		return
 	}
 	defer func() { _ = fh.Close() }()
 	info, err := fh.Stat()
 	if err != nil {
-		c.String(http.StatusNotFound, "附件内容已不在")
+		s.notFoundText(c, uierr.FileGone)
 		return
 	}
 	// 内容寻址 = 内容永不变，可以放心长缓存

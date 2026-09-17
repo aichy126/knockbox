@@ -68,5 +68,18 @@
   "err_no_sample": "No such example",
   "err_join_too_fast": "Too many join requests. Try again in a moment.",
   "err_issue_failed": "Could not issue a pairing code: ",
-  "err_q_r_failed": "Could not generate the QR code: "
+  "err_q_r_failed": "Could not generate the QR code: ",
+  "user_errors": {
+    "file.gone": "This attachment is no longer on the server.",
+    "file.link_invalid": "This attachment link is not valid any more.",
+    "join.too_fast": "Too many join attempts. Try again in a moment.",
+    "login.too_fast": "Too many sign-in attempts. Try again in a minute.",
+    "pair.expired": "This pairing code has expired. Generate a new one.",
+    "pair.not_found": "This pairing code does not exist.",
+    "pair.too_fast": "Too many pairing attempts. Try again in a minute.",
+    "pair.used": "This pairing code has already been used.",
+    "reply.out_of_range": "Pick a value between %g and %g.",
+    "send.too_fast": "Sending too fast. Slow down and try again.",
+    "session.invalid": "This device is no longer paired. Pair it again."
+  }
 }

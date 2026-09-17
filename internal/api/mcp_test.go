@@ -203,7 +203,7 @@ func TestMCPKnockSharesSendRateLimit(t *testing.T) {
 	if !isErr {
 		t.Fatalf("超过速率应当报错，却成功了：%s", text)
 	}
-	if !strings.Contains(text, "频繁") {
+	if !strings.Contains(text, "too fast") {
 		t.Errorf("提示要说清是频率问题：%s", text)
 	}
 }

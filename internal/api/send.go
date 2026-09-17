@@ -237,9 +237,12 @@ func (s *Server) attachInline(c *gin.Context, in *service.SendInput) error {
 	return nil
 }
 
-// errSendTooFast 超过发送速率时给调用方的说法。
+// errSendTooFast 超过发送速率时给【调用方】的说法——读它的是写脚本的人，
+// 所以和发送 API 的其余错误一样是英文成句。
 // 说清是「频率」而不是「额度」：前者等一下就好，后者要改用法，两者的下一步不同。
-const errSendTooFast = "发送过于频繁，请降低频率后重试"
+//
+// 发送说明页上那条是给人看的，走 uierr.SendTooFast 按语言渲染，不用这个常量。
+const errSendTooFast = "sending too fast, slow down and try again"
 
 // multipartSlack multipart 的分隔符、表单字段和头部占的额外字节。
 // 请求体上限 = 附件上限 + 它，免得刚好卡在上限的附件被整体拒掉。

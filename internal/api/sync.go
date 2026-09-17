@@ -14,7 +14,7 @@ func (s *Server) sync(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	out, err := service.NewSync(s.DAO).Since(middleware.UserID(c), since, limit)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	s.fillFileURLs(out.Messages)
@@ -45,7 +45,7 @@ func (s *Server) markRead(c *gin.Context) {
 		rows, err := s.DAO.Engine().QueryString(
 			"SELECT COALESCE(MAX(id), 0) AS n FROM message WHERE user_id = ?", middleware.UserID(c))
 		if err != nil {
-			res.Rfail(c, err.Error())
+			s.fail(c, err)
 			return
 		}
 		for _, v := range rows[0] {
@@ -53,7 +53,7 @@ func (s *Server) markRead(c *gin.Context) {
 		}
 	}
 	if err := sync.MarkRead(middleware.UserID(c), upTo, b.UIDs); err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	badge, _ := sync.Badge(middleware.UserID(c))
@@ -70,7 +70,7 @@ func (s *Server) deleteMessages(c *gin.Context) {
 	}
 	n, err := service.NewSync(s.DAO).Delete(middleware.UserID(c), b.UIDs)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, gin.H{"deleted": n})
@@ -83,7 +83,7 @@ func (s *Server) purgeChannel(c *gin.Context) {
 	_ = c.ShouldBindJSON(&b)
 	out, err := service.NewSync(s.DAO).PurgeChannel(middleware.UserID(c), c.Param("id"), b.Before)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, out)
@@ -113,7 +113,7 @@ func (s *Server) messages(c *gin.Context) {
 	var out []service.MessageView
 	rows, err := q.OrderBy("id DESC").Limit(limit).QueryString()
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	for _, r := range rows {

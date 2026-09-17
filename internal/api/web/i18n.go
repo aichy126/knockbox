@@ -4,6 +4,8 @@ package web
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -54,6 +56,10 @@ func init() {
 		// 半翻完的语料照样能用，不会在页面上留一片空白，
 		// 也就不必等「翻完 100%」才敢合一个 PR。
 		t := base
+		// map 字段要单独复制：结构体赋值只拷指针，不拷的话这门语言的
+		// 解码会把值写进英文那一份里——英文页面开始显示中文，而且只在
+		// 语言文件的加载顺序变化时才会暴露。
+		t.UserErrors = maps.Clone(base.UserErrors)
 		mustLoadLocale("locales/"+e.Name(), &t)
 		texts[name] = t
 		rest = append(rest, name)
@@ -149,6 +155,13 @@ type Texts struct {
 	// 中文这类需要分简繁的才写全（zh-CN）。
 	HTMLLang string `json:"html_lang"`
 
+	// UserErrors 用户会读到的错误，key 是 internal/uierr 里的 code。
+	//
+	// 用一张表而不是一个个字段：加一条错误只改 JSON，不改 Go——和「加一门语言
+	// 只加一个文件」是同一条原则。代价是 code 拼错不会编译失败，所以有测试
+	// 拿 uierr.All 核对这张表一条不少。
+	UserErrors map[string]string `json:"user_errors"`
+
 	// ── 接入页 ──────────────────────────────────────────────
 	JoinTitle      string `json:"join_title"` // <title>
 	JoinHeading    string `json:"join_heading"`
@@ -222,6 +235,21 @@ type Texts struct {
 	ErrJoinTooFast   string `json:"err_join_too_fast"`
 	ErrIssueFailed   string `json:"err_issue_failed"`
 	ErrQRFailed      string `json:"err_q_r_failed"`
+}
+
+// UserError 把一个错误 code 渲染成这一语的句子。
+//
+// 找不到就原样返回 code：那是一个能被搜索、能被报告的字符串，
+// 比给人看一片空白强，也让「语料漏了一条」在第一次出现时就被认出来。
+func UserError(l Lang, code string, args ...any) string {
+	f, ok := T(l).UserErrors[code]
+	if !ok || f == "" {
+		return code
+	}
+	if len(args) == 0 {
+		return f
+	}
+	return fmt.Sprintf(f, args...)
 }
 
 // LangSwitch 页面右上角那个开关，列出除当前语言之外的每一种。

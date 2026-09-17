@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"time"
 
 	"github.com/aichy126/knockbox/internal/dao"
@@ -19,7 +20,9 @@ const SessionTTL = 14 * 24 * time.Hour
 // 而这个字段只用来在「活跃会话」列表里显示「最近活动」，精确到分钟绰绰有余。
 const sessionTouchInterval = 5 * time.Minute
 
-var ErrSessionInvalid = errors.New("会话无效或已过期")
+// ErrSessionInvalid 客户端的设备凭据不认了。用 uierr 是因为这句话最终
+// 显示在使用者眼前，该用他的语言。
+var ErrSessionInvalid = uierr.New(uierr.SessionInvalid)
 
 type Session struct{ d *dao.DAO }
 

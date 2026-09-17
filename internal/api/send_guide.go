@@ -7,6 +7,7 @@ import (
 	"github.com/aichy126/knockbox/internal/api/web"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -93,7 +94,7 @@ func (s *Server) sendTry(c *gin.Context) {
 	}
 	// 这一页没有鉴权（凭据就在 URL 里），和正式发送走同一条速率限制。
 	if !s.sendLimit.Allow(ch.Token) {
-		fail(errSendTooFast)
+		fail(s.userText(c, uierr.SendTooFast))
 		return
 	}
 	if err := s.quota().CheckSend(ch.UserId); err != nil {
