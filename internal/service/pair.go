@@ -42,7 +42,7 @@ func (p *Pair) Issue(userID int64, host, issuedBy string, ttl time.Duration) (*P
 		ttl = 10 * time.Minute
 	}
 	if host == "" {
-		return nil, errors.New("server.external_url 没配，生成的配对链接会指向错误的地址")
+		return nil, errors.New("server.external_url is not set: the pairing link would point at the wrong address")
 	}
 	now := time.Now()
 	rec := &models.PairCode{

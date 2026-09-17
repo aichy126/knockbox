@@ -637,7 +637,7 @@ func (s *Server) adminPasswordSave(c *gin.Context) {
 		return
 	}
 	if err := acc.SetPassword(me.Username, pw); err != nil {
-		log.Error("改密码失败", log.Any("user", me.Username), log.Any("error", err.Error()))
+		log.Error("changing the password failed", log.Any("user", me.Username), log.Any("error", err.Error()))
 		back("err")
 		return
 	}

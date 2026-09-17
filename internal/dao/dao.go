@@ -48,11 +48,11 @@ func NextRev(sess *xorm.Session) (int64, error) {
 		return 0, err
 	}
 	if len(rows) == 0 {
-		return 0, fmt.Errorf("seq 表里没有 rev 行，数据库未正确初始化")
+		return 0, fmt.Errorf("no rev row in the seq table: the database was not initialised properly")
 	}
 	var rev int64
 	if _, err := fmt.Sscan(rows[0]["val"], &rev); err != nil {
-		return 0, fmt.Errorf("rev 值 %q 非法: %w", rows[0]["val"], err)
+		return 0, fmt.Errorf("invalid rev value %q: %w", rows[0]["val"], err)
 	}
 	return rev, nil
 }

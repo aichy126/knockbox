@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	ErrUserNotFound = errors.New("用户不存在")
-	ErrUserExists   = errors.New("用户名已被占用")
+	ErrUserNotFound = errors.New("no such account")
+	ErrUserExists   = errors.New("that name is taken")
 )
 
 type Account struct{ d *dao.DAO }
@@ -28,11 +28,11 @@ func NewAccount(d *dao.DAO) *Account { return &Account{d: d} }
 // ValidateUsername 只允许字母数字和 . _ -，因为它会出现在 URL 和命令行里。
 func ValidateUsername(name string) error {
 	if len(name) < 2 || len(name) > 32 {
-		return fmt.Errorf("用户名长度要在 2-32 之间，得到 %d", len(name))
+		return fmt.Errorf("a name is 2-32 characters, got %d", len(name))
 	}
 	for _, r := range name {
 		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '.' && r != '_' && r != '-' {
-			return fmt.Errorf("用户名只能用字母、数字和 . _ -，不能有 %q", r)
+			return fmt.Errorf("a name may only contain letters, digits and . _ -, not %q", r)
 		}
 	}
 	return nil
@@ -43,10 +43,10 @@ func ValidateUsername(name string) error {
 // 而长度才是真正有用的那个维度。
 func ValidatePassword(pw string) error {
 	if len([]rune(pw)) < 8 {
-		return fmt.Errorf("密码至少 8 位，得到 %d 位", len([]rune(pw)))
+		return fmt.Errorf("a password is at least 8 characters, got %d", len([]rune(pw)))
 	}
 	if strings.TrimSpace(pw) == "" {
-		return errors.New("密码不能全是空白字符")
+		return errors.New("a password cannot be only whitespace")
 	}
 	return nil
 }
@@ -72,7 +72,7 @@ func (a *Account) Create(username, password, role string) (*models.User, error) 
 		return nil, err
 	}
 	if role != models.RoleAdmin && role != models.RoleMember {
-		return nil, fmt.Errorf("role 只能是 %s 或 %s", models.RoleAdmin, models.RoleMember)
+		return nil, fmt.Errorf("role must be %s or %s", models.RoleAdmin, models.RoleMember)
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -150,13 +150,13 @@ func (a *Account) Verify(username, password string) (*models.User, error) {
 		return nil, ErrUserNotFound
 	}
 	if u.Status != models.StatusActive {
-		return nil, errors.New("账号已停用")
+		return nil, errors.New("this account is disabled")
 	}
 	if u.PasswordHash == "" {
-		return nil, errors.New("该账号没有设置密码，不能登录管理界面")
+		return nil, errors.New("this account has no password and cannot sign in")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
-		return nil, errors.New("密码不正确")
+		return nil, errors.New("wrong password")
 	}
 	return u, nil
 }

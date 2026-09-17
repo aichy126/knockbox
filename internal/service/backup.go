@@ -43,7 +43,7 @@ func (b *Backup) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			if err := b.Once(); err != nil {
-				log.Warn("备份失败", log.Any("error", err.Error()))
+				log.Warn("backup failed", log.Any("error", err.Error()))
 			}
 		}
 	}
@@ -64,7 +64,7 @@ func (b *Backup) Once() error {
 			break
 		}
 		if i > 50 {
-			return fmt.Errorf("备份文件名反复冲突: %s", name)
+			return fmt.Errorf("backup file name keeps colliding: %s", name)
 		}
 		name = fmt.Sprintf("%s-%d.db", base, i)
 	}
@@ -75,7 +75,7 @@ func (b *Backup) Once() error {
 	if err != nil {
 		return err
 	}
-	log.Info("备份完成", log.Any("file", filepath.Base(name)), log.Any("bytes", info.Size()))
+	log.Info("backup done", log.Any("file", filepath.Base(name)), log.Any("bytes", info.Size()))
 	return b.prune()
 }
 
@@ -99,7 +99,7 @@ func (b *Backup) prune() error {
 	sort.Strings(names)
 	for _, n := range names[:len(names)-b.keep] {
 		if err := os.Remove(filepath.Join(b.dir, n)); err != nil {
-			log.Warn("删除旧备份失败", log.Any("file", n), log.Any("error", err.Error()))
+			log.Warn("deleting an old backup failed", log.Any("file", n), log.Any("error", err.Error()))
 		}
 	}
 	return nil
