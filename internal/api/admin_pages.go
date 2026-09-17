@@ -59,8 +59,10 @@ func (s *Server) adminMessages(c *gin.Context) {
 	sql += " ORDER BY m.id DESC LIMIT ?"
 	args = append(args, pageSize+1)
 
-	// xorm 的 QueryString 是 (...any)，第一个元素才是 SQL —— 得把它拼进切片
-	rows, _ := s.DAO.Engine().QueryString(append([]any{sql}, args...)...)
+	// SQL 与参数分开传。QueryString(...any) 那个变参形态会把语句和用户输入
+	// 塞进同一个切片，静态分析分不出哪个是语句，人读起来也一样——
+	// SQL(sql, args...) 的第一个参数明确是语句。
+	rows, _ := s.DAO.Engine().SQL(sql, args...).QueryString()
 	more := len(rows) > pageSize
 	if more {
 		rows = rows[:pageSize]
@@ -386,8 +388,7 @@ func (s *Server) adminUsers(c *gin.Context) {
 		args = append(args, "%"+q+"%")
 	}
 	var total int64
-	cnt := append([]any{"SELECT COUNT(*) FROM user u" + where}, args...)
-	_, _ = s.DAO.Engine().SQL(cnt[0], cnt[1:]...).Get(&total)
+	_, _ = s.DAO.Engine().SQL("SELECT COUNT(*) FROM user u"+where, args...).Get(&total)
 
 	sql := `SELECT u.id, u.name, u.role, u.status, u.last_login_at, u.created_at, u.unlimited,
 	          (SELECT COUNT(*) FROM device d WHERE d.user_id=u.id) AS devices,
@@ -395,7 +396,7 @@ func (s *Server) adminUsers(c *gin.Context) {
 	          (SELECT COUNT(*) FROM message m WHERE m.user_id=u.id AND m.deleted_at=0) AS msgs
 	        FROM user u` + where + " ORDER BY u.id LIMIT ? OFFSET ?"
 	args = append(args, pageSize, (page-1)*pageSize)
-	rows, _ := s.DAO.Engine().QueryString(append([]any{sql}, args...)...)
+	rows, _ := s.DAO.Engine().SQL(sql, args...).QueryString()
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<div class="ph"><div><h1>成员</h1><div class="sub">这台服务器上的收件身份 · 共 %d 人</div></div>`+
