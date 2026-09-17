@@ -2,6 +2,9 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/aichy126/knockbox/actions/workflows/ci.yml/badge.svg)](https://github.com/aichy126/knockbox/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 Self-hosted push notification server for iOS. Send a message with one `curl`, get it on your phone.
 
 Knockbox is a single Go binary with a single SQLite file. It stores your messages,

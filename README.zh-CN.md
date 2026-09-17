@@ -2,6 +2,9 @@
 
 [English](README.md) · **简体中文**
 
+[![CI](https://github.com/aichy126/knockbox/actions/workflows/ci.yml/badge.svg)](https://github.com/aichy126/knockbox/actions/workflows/ci.yml)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 自建 iOS 消息推送服务端。一条 `curl` 发出去，手机上就收到。
 
 Knockbox 是一个单二进制 + 单 SQLite 文件的自建推送服务端。它存消息、直接推给 Apple
