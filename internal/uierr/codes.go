@@ -24,6 +24,11 @@ const (
 	PairTooFast  = "pair.too_fast"
 	LoginTooFast = "login.too_fast"
 
+	// 配额：只在公共模式下生效，撞上的人既可能在 app 里建频道，也可能在发送
+	QuotaChannels     = "quota.channels"
+	QuotaDaily        = "quota.daily"
+	QuotaDailyWithETA = "quota.daily_with_eta"
+
 	// 频道：app 里建频道、改打扰级别时
 	ChannelNotFound = "channel.not_found"
 	ChannelExists   = "channel.exists"
@@ -47,6 +52,7 @@ var All = []string{
 	SessionInvalid,
 	FileLinkInvalid, FileGone,
 	SendTooFast, JoinTooFast, PairTooFast, LoginTooFast,
+	QuotaChannels, QuotaDaily, QuotaDailyWithETA,
 	ChannelNotFound, ChannelExists, ChannelBadLevel,
 	ReplyNotFound, ReplyNotOpen, ReplyExpired, ReplyDone,
 	ReplyBadChoice, ReplyBadNumber, ReplyEmpty, ReplyOutOfRange,

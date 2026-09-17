@@ -2,7 +2,7 @@ package service
 
 import (
 	"errors"
-	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"time"
 
 	"github.com/aichy126/knockbox/internal/dao"
@@ -40,21 +40,36 @@ type QuotaError struct {
 	Reset time.Duration
 }
 
-func (e *QuotaError) Error() string {
+// Code 这次是撞上了哪一种配额。句子按读它的人的语言在 api 层渲染——
+// 公共实例上撞到配额的既可能是在 app 里建频道的人，也可能是在发请求的脚本。
+func (e *QuotaError) Code() string {
 	switch e.Kind {
 	case "channels":
-		return fmt.Sprintf("频道数已达上限（%d 个）", e.Limit)
+		return uierr.QuotaChannels
 	case "daily":
 		// 窗口是滚动的 24 小时，不是自然日，所以不能说「今天」；
-		// 恢复时刻由窗口内最早那条消息决定，算不出来时就不承诺时间。
+		// 恢复时刻由窗口内最早那条消息决定，算不出来时就不承诺时间——
+		// 那是两句不同的话，所以是两个 code。
 		if e.Reset > 0 {
-			return fmt.Sprintf("最近 24 小时的消息数已达上限（%d 条），%s 后恢复",
-				e.Limit, e.Reset.Round(time.Minute))
+			return uierr.QuotaDailyWithETA
 		}
-		return fmt.Sprintf("最近 24 小时的消息数已达上限（%d 条）", e.Limit)
+		return uierr.QuotaDaily
 	}
-	return "已达配额上限"
+	return uierr.QuotaChannels
 }
+
+// Args 渲染句子要用的值。
+func (e *QuotaError) Args() []any {
+	if e.Kind == "daily" && e.Reset > 0 {
+		return []any{e.Limit, e.Reset.Round(time.Minute)}
+	}
+	return []any{e.Limit}
+}
+
+func (e *QuotaError) Error() string { return e.Code() }
+
+// Unwrap 让它能被 uierr.As 取到：api 层照常按 code 渲染。
+func (e *QuotaError) Unwrap() error { return uierr.New(e.Code(), e.Args()...) }
 
 var ErrQuota = errors.New("quota")
 

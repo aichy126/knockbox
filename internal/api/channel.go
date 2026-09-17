@@ -32,7 +32,7 @@ func (s *Server) view(ch *models.Channel) channelView {
 		ID: ch.Id, Token: ch.Token, Muted: ch.Muted != 0, MuteUntil: ch.MuteUntil, Sound: ch.Sound,
 		Level: ch.Level, Meta: ch.Meta, MsgCount: ch.MsgCount,
 		LastMsgID: ch.LastMsgId, LastMsgAt: ch.LastMsgAt,
-		CurlExample: `curl -d "消息内容" ` + s.ExternalURL + "/api/v1/send/" + ch.Token,
+		CurlExample: `curl -d "your message" ` + s.ExternalURL + "/api/v1/send/" + ch.Token,
 	}
 }
 
@@ -52,7 +52,7 @@ func (s *Server) listChannels(c *gin.Context) {
 func (s *Server) createChannel(c *gin.Context) {
 	var in service.ChannelInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	if err := s.quota().CheckChannel(middleware.UserID(c)); err != nil {
@@ -70,13 +70,13 @@ func (s *Server) createChannel(c *gin.Context) {
 func (s *Server) updateChannel(c *gin.Context) {
 	var in service.ChannelInput
 	if err := c.ShouldBindJSON(&in); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	ch, err := service.NewChannel(s.DAO).Update(middleware.UserID(c), c.Param("id"), in)
 	if err != nil {
 		if errors.Is(err, service.ErrChannelNotFound) {
-			res.Rfail(c, "频道不存在")
+			s.fail(c, service.ErrChannelNotFound)
 			return
 		}
 		s.fail(c, err)

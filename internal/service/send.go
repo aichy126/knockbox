@@ -317,7 +317,7 @@ func (s *Send) Deliver(ch *models.Channel, in SendInput, fromIP string) (*SendRe
 // 「这个 uid 不存在」和「它是别人的」共用同一句：对持有 token 的人来说，
 // 两种情况的下一步都是重新上传；分开报等于把「这个 uid 存在」告诉一个
 // 本来无权知道的人。
-const errFileNotUsable = "附件不存在或已失效，请重新上传后再发送"
+const errFileNotUsable = "the attachment is gone or expired; upload it again before sending"
 
 // resolveFile 把附件 uid 换成 file 表的行 id，并确认它属于本频道所属的账户。
 //
@@ -366,9 +366,9 @@ func (s *Send) Batch(tokens []string, in SendInput, fromIP string, allow func(st
 		has, err := s.d.Engine().Where("token = ?", tok).Get(&ch)
 		switch {
 		case err != nil:
-			r.Error = "查询频道失败: " + err.Error()
+			r.Error = "cannot look up the channel: " + err.Error()
 		case !has || ch.Status != models.StatusActive:
-			r.Error = "频道 token 无效"
+			r.Error = "invalid channel token"
 		default:
 			// 速率判定放在 token 校验【之后】：无效 token 不该消耗额度，
 			// 否则拿一堆乱码 token 就能把别人的桶刷空。

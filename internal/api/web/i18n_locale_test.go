@@ -146,3 +146,27 @@ func TestNoOrphanErrorCodes(t *testing.T) {
 		}
 	}
 }
+
+// 配额那两句的措辞有个具体要求：窗口是滚动的 24 小时，不是自然日。
+// 说成「今天」会让人以为过了零点就恢复，而实际恢复时刻由窗口内最早那条消息决定。
+//
+// 这条断言本来在 service 层（断言错误文本），i18n 之后句子搬到了语料里，
+// 意图也跟着搬过来。
+func TestDailyQuotaWordingIsARollingWindow(t *testing.T) {
+	zh := T(LangZH).UserErrors
+	for _, code := range []string{uierr.QuotaDaily, uierr.QuotaDailyWithETA} {
+		s := zh[code]
+		if strings.Contains(s, "今天") {
+			t.Errorf("%s 说成了「今天」，但窗口是滚动 24 小时：%s", code, s)
+		}
+		if !strings.Contains(s, "24 小时") {
+			t.Errorf("%s 应当说清窗口是 24 小时：%s", code, s)
+		}
+	}
+	en := T(LangEN).UserErrors
+	for _, code := range []string{uierr.QuotaDaily, uierr.QuotaDailyWithETA} {
+		if s := en[code]; !strings.Contains(s, "24 hours") {
+			t.Errorf("%s 的英文也要说清窗口：%s", code, s)
+		}
+	}
+}

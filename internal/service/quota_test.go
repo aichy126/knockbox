@@ -2,7 +2,7 @@ package service
 
 import (
 	"errors"
-	"strings"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"testing"
 	"time"
 
@@ -45,12 +45,14 @@ func TestDailyQuotaReportsRealResetTime(t *testing.T) {
 	if qe.Reset < 21*time.Hour || qe.Reset > 22*time.Hour+time.Minute {
 		t.Errorf("恢复时间应当在 22 小时上下，得到 %s", qe.Reset)
 	}
-	msg := err.Error()
-	if strings.Contains(msg, "今天") {
-		t.Errorf("窗口是滚动 24 小时，不该说「今天」：%s", msg)
+	// 算得出恢复时刻就该承诺它——这是「用哪个 code」的区别，不是措辞的区别。
+	// 句子本身（不说「今天」、说清是滚动 24 小时）由语料负责，
+	// 断言在 internal/api/web 那边。
+	if qe.Code() != uierr.QuotaDailyWithETA {
+		t.Errorf("算得出恢复时刻时应当用 %s，得到 %s", uierr.QuotaDailyWithETA, qe.Code())
 	}
-	if !strings.Contains(msg, "最近 24 小时") {
-		t.Errorf("提示应当说清窗口是最近 24 小时：%s", msg)
+	if len(qe.Args()) != 2 {
+		t.Errorf("带恢复时刻的那句要两个插值，得到 %v", qe.Args())
 	}
 }
 
@@ -58,8 +60,8 @@ func TestDailyQuotaReportsRealResetTime(t *testing.T) {
 // 算不出恢复时刻时就不要承诺一个时间。
 func TestDailyQuotaOmitsResetWhenUnknown(t *testing.T) {
 	e := &QuotaError{Kind: "daily", Limit: 5}
-	if strings.Contains(e.Error(), "后恢复") {
-		t.Errorf("算不出恢复时刻时不该承诺时间：%s", e.Error())
+	if e.Code() != uierr.QuotaDaily {
+		t.Errorf("算不出恢复时刻时不该用带时间的那句：%s", e.Code())
 	}
 }
 

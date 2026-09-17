@@ -21,7 +21,7 @@ func (s *Server) reply(c *gin.Context) {
 		Reply string `json:"reply"`
 	}
 	if err := c.ShouldBindJSON(&b); err != nil {
-		res.Rfail(c, "解析请求失败: "+err.Error())
+		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
 	out, err := service.NewReply(s.DAO).Submit(middleware.UserID(c), c.Param("uid"), b.Reply)
