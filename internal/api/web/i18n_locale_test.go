@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/aichy126/knockbox/internal/uierr"
 )
 
 // 语料是从 locales/ 读进来的，读不到或读坏了会在 init 里 panic，
@@ -112,5 +114,35 @@ func TestLangSwitch(t *testing.T) {
 	}
 	if got := len(Langs()); got != 2 {
 		t.Errorf("现在应当注册了 2 门语言，得到 %d", got)
+	}
+}
+
+// uierr 里定义的每一个 code，每门语言都要有对应的句子。
+//
+// 漏一条不会有任何编译错误，表现是用户在界面上看到 "pair.expired" 这样一个
+// 字符串——而且只有真的撞上那个错误的人才会看到。
+func TestEveryErrorCodeHasText(t *testing.T) {
+	for _, l := range Langs() {
+		tx := T(l)
+		for _, code := range uierr.All {
+			s, ok := tx.UserErrors[code]
+			if !ok || strings.TrimSpace(s) == "" {
+				t.Errorf("%s 缺 %q 的文案", l, code)
+			}
+		}
+	}
+}
+
+// 语料里也不该有 uierr 已经不用的 code——那是改名之后留下的孤儿，
+// 下一个人会以为它还在用。
+func TestNoOrphanErrorCodes(t *testing.T) {
+	known := map[string]bool{}
+	for _, c := range uierr.All {
+		known[c] = true
+	}
+	for code := range T(LangEN).UserErrors {
+		if !known[code] {
+			t.Errorf("en.json 里的 %q 在 uierr.All 里没有——改过名？还是已经不用了？", code)
+		}
 	}
 }

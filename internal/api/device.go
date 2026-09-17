@@ -16,7 +16,7 @@ func (s *Server) pair(c *gin.Context) {
 	}
 	out, err := service.NewDevice(s.DAO).Pair(in, s.Name, s.Version)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, out)
@@ -38,7 +38,7 @@ func (s *Server) pushToken(c *gin.Context) {
 	}
 	dev := middleware.Device(c)
 	if err := service.NewDevice(s.DAO).UpdatePushToken(dev, b.APNsToken, b.APNsEnv, b.AppVersion, b.OSVersion); err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, gin.H{"ok": true})
@@ -47,7 +47,7 @@ func (s *Server) pushToken(c *gin.Context) {
 func (s *Server) listDevices(c *gin.Context) {
 	out, err := service.NewDevice(s.DAO).ListByUser(middleware.UserID(c))
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	type row struct {
@@ -76,7 +76,7 @@ func (s *Server) deleteDevice(c *gin.Context) {
 		uuid = middleware.Device(c).UUID
 	}
 	if err := service.NewDevice(s.DAO).Logout(middleware.UserID(c), uuid); err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, gin.H{"ok": true})
@@ -92,7 +92,7 @@ func (s *Server) issuePair(c *gin.Context) {
 	code, err := service.NewPair(s.DAO).Issue(
 		middleware.UserID(c), s.ExternalURL, "device", s.PairTTL)
 	if err != nil {
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	res.Rsucc(c, gin.H{

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"image"
 	"image/color"
 	_ "image/gif"
@@ -213,7 +214,7 @@ func (s *File) ByUID(uid string) (*models.File, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, errors.New("attachment not found")
+		return nil, uierr.New(uierr.FileGone)
 	}
 	return &f, nil
 }

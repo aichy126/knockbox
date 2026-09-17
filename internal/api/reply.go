@@ -38,7 +38,7 @@ func (s *Server) reply(c *gin.Context) {
 			})
 			return
 		}
-		res.Rfail(c, err.Error())
+		s.fail(c, err)
 		return
 	}
 	// 回复已经落库，回调也已经和它在同一个事务里排好队。

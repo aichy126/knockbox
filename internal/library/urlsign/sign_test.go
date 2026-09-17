@@ -84,7 +84,7 @@ func TestVerifyRejectsExpiredLink(t *testing.T) {
 	if !errors.Is(err, ErrBadSignature) {
 		t.Fatalf("过期链接应当验不过，得到 %v", err)
 	}
-	if !strings.Contains(err.Error(), "过期") {
+	if !strings.Contains(err.Error(), "expired") {
 		t.Errorf("过期和签名错要能分辨，当前提示：%v", err)
 	}
 }

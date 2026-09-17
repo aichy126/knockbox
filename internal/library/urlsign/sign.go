@@ -9,14 +9,16 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"net/url"
 	"strconv"
 	"time"
 )
 
-var ErrBadSignature = errors.New("附件链接无效或已过期")
+// ErrBadSignature 链接不对或已过期。对读它的人来说这两种是同一件事：
+// 回到 app 里重新取一次。
+var ErrBadSignature = uierr.New(uierr.FileLinkInvalid)
 
 // Sign 返回带 e（过期时间）与 s（签名）的查询串。
 func Sign(key []byte, uid string, thumb bool, ttl time.Duration) string {
@@ -37,7 +39,9 @@ func Verify(key []byte, uid string, q url.Values) error {
 		return ErrBadSignature
 	}
 	if time.Now().Unix() > exp {
-		return fmt.Errorf("%w：链接已过期", ErrBadSignature)
+		// 对读它的人来说过期和签名错是同一句话（回 app 里重新取一次），
+		// 但日志里要分得出来——包一层，uierr 仍在错误链上。
+		return fmt.Errorf("%w: expired", ErrBadSignature)
 	}
 	want := mac(key, uid, exp, q.Get("t") == "1")
 	// 定长比较：签名校验不能用 == ，那会泄露前缀匹配长度

@@ -54,7 +54,7 @@ func normEnv(s string) string {
 // 三件事要么一起成、要么一起回滚。否则会出现「码用掉了但设备没建成」这种谁都救不回来的状态。
 func (s *Device) Pair(in RegisterInput, serverName, version string) (*RegisterResult, error) {
 	if strings.TrimSpace(in.UUID) == "" {
-		return nil, errors.New("缺少设备 uuid")
+		return nil, errors.New("uuid is required")
 	}
 	token := idgen.Token("dv_")
 	now := time.Now().Unix()
@@ -168,7 +168,7 @@ func (s *Device) Logout(userID int64, uuid string) error {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("设备 %s 不存在", uuid)
+		return fmt.Errorf("device %s not found", uuid)
 	}
 	return nil
 }

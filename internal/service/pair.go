@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"net/url"
 	"time"
 
@@ -102,13 +103,13 @@ func (p *Pair) Redeem(sess *xorm.Session, code, deviceUUID string) (int64, error
 		return 0, err
 	}
 	if !has {
-		return 0, errors.New("配对码不存在")
+		return 0, uierr.New(uierr.PairNotFound)
 	}
 	if rec.UsedAt != 0 {
-		return 0, errors.New("配对码已被使用过")
+		return 0, uierr.New(uierr.PairUsed)
 	}
 	if rec.ExpiresAt < time.Now().Unix() {
-		return 0, errors.New("配对码已过期，请重新生成")
+		return 0, uierr.New(uierr.PairExpired)
 	}
 	if _, err := sess.Exec("UPDATE pair_code SET used_at = ?, used_by = ? WHERE id = ? AND used_at = 0",
 		time.Now().Unix(), deviceUUID, rec.Id); err != nil {

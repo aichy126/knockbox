@@ -8,6 +8,7 @@ import (
 	"github.com/aichy126/knockbox/internal/middleware"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
+	"github.com/aichy126/knockbox/internal/uierr"
 	"github.com/gin-gonic/gin"
 )
 
@@ -159,9 +160,9 @@ func Router(r *gin.Engine, s *Server) {
 	// 单次使用 + 有限的有效期 + 这里的每 IP 每分钟若干次，三样缺一不可。
 	// 少了限流，攻击者能在有效期窗口里无限次猜。
 	r.POST("/api/v1/pair", middleware.NewRateLimit(s.PairPerMin, time.Minute).
-		Gin("配对尝试过于频繁，请一分钟后再试"), s.pair)
+		Gin(uierr.PairTooFast, s.userText), s.pair)
 	// 登录同理：单账号服务最怕的就是慢速爆破
-	r.POST("/login", middleware.NewRateLimit(10, time.Minute).Gin("登录尝试过于频繁"), s.doLogin)
+	r.POST("/login", middleware.NewRateLimit(10, time.Minute).Gin(uierr.LoginTooFast, s.userText), s.doLogin)
 
 	// ── 客户端侧：设备 token ─────────────────────────────────────
 	app := r.Group("/api/v1", middleware.DeviceAuth(s.DAO))
