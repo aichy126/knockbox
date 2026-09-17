@@ -38,10 +38,15 @@ type List[T any] struct {
 
 // listOf 把「多查一条」的结果切回一页，并算出游标。
 func listOf[T any](rows []T, limit int, cursor func(T) int64) List[T] {
-	out := List[T]{Items: []T{}}
+	var out List[T]
 	if len(rows) > limit {
 		rows = rows[:limit]
 		out.HasMore = true
+	}
+	// 零结果时 xorm 留下的是 nil 切片，直接塞进信封会序列化成 items:null，
+	// 前端一个 data.items.map() 就抛 TypeError。空列表必须是 []。
+	if rows == nil {
+		rows = []T{}
 	}
 	out.Items = rows
 	if out.HasMore && len(rows) > 0 {

@@ -181,7 +181,6 @@ func (s *Server) adminAPIMembers(c *gin.Context) {
 
 type deviceJSON struct {
 	ID         int64  `json:"id"`
-	UUID       string `json:"uuid"`
 	Name       string `json:"name"`
 	Platform   string `json:"platform"`
 	Model      string `json:"model"`
@@ -239,6 +238,10 @@ func (s *Server) adminAPIMember(c *gin.Context) {
 		Member: memberJSON{
 			ID: u.Id, Name: u.Name, Role: u.Role, Status: u.Status,
 			Unlimited: u.Unlimited != 0, LastLoginAt: u.LastLoginAt, CreatedAt: u.Ctime,
+			// 三个计数必须填：memberJSON 在列表端点里是真值，
+			// 详情端点留零的话，同一个类型在两处含义不同，
+			// 前端复用同一个卡片组件就会在详情页显示「设备 0」。
+			Devices: int64(len(devs)), Channels: int64(len(chans)),
 		},
 		Usage:    s.quota().Usage(u.Id),
 		Channels: make([]channelJSON, 0, len(chans)),
@@ -251,6 +254,7 @@ func (s *Server) adminAPIMember(c *gin.Context) {
 			Level: ch.Level, Messages: ch.Messages, LastMsgAt: ch.LastMsgAt,
 		})
 	}
+	d.Member.Messages = d.Usage.Messages
 	for _, dv := range devs {
 		d.Devices = append(d.Devices, deviceJSON{
 			ID: dv.Id, Name: dv.Name, Platform: dv.Platform, Model: dv.Model,
@@ -283,11 +287,19 @@ func (s *Server) adminAPIChannel(c *gin.Context) {
 		s.adminFail(c, "channel", err)
 		return
 	}
+	// 【不用 ch.MsgCount】：那是反范式计数器，保留期 GC 不维护它。
+	// 成员详情里同一个频道走的是 COUNT(*)，两处必须同一个口径，
+	// 否则 GC 跑过之后同一个频道在两屏上是两个数，而且都不报错。
+	n, err := s.admin().ChannelMessageCount(ch.Id)
+	if err != nil {
+		s.adminFail(c, "channel message count", err)
+		return
+	}
 	var d channelDetail
 	d.Channel = channelJSON{
 		ID: ch.Id, Name: channelName(ch.Meta, ch.Id), Meta: ch.Meta,
 		Muted: ch.Muted != 0, MuteUntil: ch.MuteUntil, Sound: ch.Sound,
-		Level: ch.Level, Messages: ch.MsgCount, LastMsgAt: ch.LastMsgAt,
+		Level: ch.Level, Messages: n, LastMsgAt: ch.LastMsgAt,
 	}
 	d.Owner.ID, d.Owner.Name = owner.Id, owner.Name
 	d.Token, d.LastUsedAt, d.LastUsedIP = ch.Token, ch.LastUsedAt, ch.LastUsedIP

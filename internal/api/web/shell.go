@@ -166,7 +166,11 @@ func contentClass(flat bool) string {
 
 // Tabs 页内切换。用链接而不是 JS：地址栏能带着 tab 一起分享和刷新，
 // 服务端直出页面也不必为了一个切换引入状态。
-func Tabs(current string, items [][2]string) string {
+// Tabs 每一项是 {key, 显示文案, 链接}。
+//
+// key 与文案分开，是因为选中状态要进 URL：拿文案当 key 的话，中文就成了
+// 路由状态（?tab=服务器），而文案一旦翻译，那条链接就再也点不亮了。
+func Tabs(current string, items [][3]string) string {
 	var b strings.Builder
 	b.WriteString(`<div class="tabs">`)
 	for _, it := range items {
@@ -174,7 +178,7 @@ func Tabs(current string, items [][2]string) string {
 		if it[0] == current {
 			on = " on"
 		}
-		fmt.Fprintf(&b, `<a class="tab%s" href="%s">%s</a>`, on, E(it[1]), E(it[0]))
+		fmt.Fprintf(&b, `<a class="tab%s" href="%s">%s</a>`, on, E(it[2]), E(it[1]))
 	}
 	b.WriteString(`</div>`)
 	return b.String()

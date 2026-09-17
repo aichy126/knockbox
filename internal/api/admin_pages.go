@@ -349,6 +349,25 @@ func (s *Server) adminDeviceDelete(c *gin.Context) {
 
 // ── 成员 ──────────────────────────────────────────────
 
+// passwordError 把 ?pwd= 上那个短码翻成一句话。
+//
+// 前三种和 JSON 接口共用同一批 uierr code，所以共用同一份语料。
+// err 那种是内部错误，uierr 里没有它——那批 code 是按「用户的下一步」分的，
+// 而这里用户没有下一步，只能重试或者去看日志。
+func (s *Server) passwordError(c *gin.Context, code string) string {
+	switch code {
+	case "wrong":
+		return s.userText(c, uierr.PasswordWrong)
+	case "mismatch":
+		return s.userText(c, uierr.PasswordMismatch)
+	case "weak":
+		return s.userText(c, uierr.PasswordWeak)
+	case "err":
+		return "改密码没有成功，密码没有改动。服务器日志里有原因。"
+	}
+	return ""
+}
+
 // actionError 把一次失败的写操作画成一条红条。
 //
 // 这些动作是 POST 完 302 走的，失败信息只能挂在 query 上带回来——
@@ -497,17 +516,19 @@ func (s *Server) adminSettings(c *gin.Context) {
 		return fmt.Sprintf(`<input type="number" min="0" name="%s" value="%d">`, name, v)
 	}
 
+	// tab 的值是 key 不是文案。中文当路由状态的话，后台文案一翻译
+	// 这条链接就再也点不亮了，而那是第二步（前端 i18n）必然会撞上的。
 	tab := c.Query("tab")
-	if tab != "服务器" {
-		tab = "对外开放"
+	if tab != "server" {
+		tab = "public"
 	}
 
 	var b strings.Builder
 	b.WriteString(`<div class="ph"><div><h1>设置</h1>` +
 		`<div class="sub">改完立刻生效，不用重启</div></div></div>`)
-	b.WriteString(web.Tabs(tab, [][2]string{
-		{"对外开放", "/admin/settings"},
-		{"服务器", "/admin/settings?tab=服务器"},
+	b.WriteString(web.Tabs(tab, [][3]string{
+		{"public", "对外开放", "/admin/settings"},
+		{"server", "服务器", "/admin/settings?tab=server"},
 	}))
 	if c.Query("saved") == "1" {
 		b.WriteString(`<div class="narrow"><div class="note">` + web.Svg("zap", 14) +
@@ -515,15 +536,13 @@ func (s *Server) adminSettings(c *gin.Context) {
 	}
 	// 改密码失败的三种情形。成功那一条不在这里：密码一改会话就失效了，
 	// 人已经被带到登录页，提示也留在那边。
-	if msg := map[string]string{
-		"wrong":    "当前密码不对，密码没有改动。",
-		"mismatch": "两次输入的新密码不一致，密码没有改动。",
-		"weak":     "新密码至少 8 位，密码没有改动。",
-		"err":      "改密码没有成功，密码没有改动。服务器日志里有原因。",
-	}[c.Query("pwd")]; msg != "" {
+	//
+	// 句子走语料，不在这里再写一份：同样这三句 JSON 接口也要回，
+	// 硬编码两份的结果是以后只改到其中一处，两个界面对同一次失败说两句话。
+	if msg := s.passwordError(c, c.Query("pwd")); msg != "" {
 		b.WriteString(`<div class="narrow"><div class="err">` + web.E(msg) + `</div></div>`)
 	}
-	if tab == "对外开放" {
+	if tab == "public" {
 		b.WriteString(`<form method="post" action="/admin/settings" class="narrow" ` +
 			`style="display:flex;flex-direction:column;gap:16px">`)
 
@@ -613,7 +632,7 @@ knockbox user disable &lt;名字&gt;   停用并踢掉会话</pre></div>`) + `</
 // 它意味着有人知道另一个人的密码。
 func (s *Server) adminPasswordSave(c *gin.Context) {
 	back := func(code string) {
-		c.Redirect(http.StatusFound, "/admin/settings?tab=服务器&pwd="+code)
+		c.Redirect(http.StatusFound, "/admin/settings?tab=server&pwd="+code)
 	}
 	me := middleware.Admin(c)
 	if me == nil {

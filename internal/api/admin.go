@@ -21,12 +21,8 @@ func (s *Server) shell(c *gin.Context, nav string, crumbs []web.Crumb, body stri
 
 // shellFlat flat=true 时内容区不滚，由页面内部的滚动区负责（频道那种聊天窗布局）。
 func (s *Server) shellFlat(c *gin.Context, nav string, crumbs []web.Crumb, body string, flat bool) {
-	host := s.ExternalURL
-	if u := strings.SplitN(strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://"), "/", 2); len(u) > 0 {
-		host = u[0]
-	}
 	page := web.Shell{
-		Nav: nav, Crumbs: crumbs, ServerName: s.Name, Host: host,
+		Nav: nav, Crumbs: crumbs, ServerName: s.Name, Host: hostOf(s.ExternalURL),
 		Version: s.Version, Online: true, Body: body, Flat: flat,
 	}.Render()
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page))
