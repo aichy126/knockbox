@@ -55,11 +55,11 @@ func (g *GC) Once() {
 	// 过期会话与过期配对码。这和保留策略无关，自建模式也要清：
 	// 不清的话，接入页每被打开一次就在 pair_code 里留一行，永远不减。
 	if err := NewSession(g.d).GC(); err != nil {
-		log.Warn("清理过期会话与配对码失败", log.Any("error", err.Error()))
+		log.Warn("cleaning up expired sessions and pairing codes failed", log.Any("error", err.Error()))
 	}
 
 	if n := g.pruneMessages(); n > 0 {
-		log.Info("保留策略已执行", log.Any("deleted", n))
+		log.Info("retention policy applied", log.Any("deleted", n))
 	}
 	g.sweepFiles()
 }
@@ -88,7 +88,7 @@ func (g *GC) pruneMessages() int {
 	// 数据被删掉这件事必须留下可追溯的痕迹；而且各人的保留期本来就可能不同。
 	rows, err := g.d.Engine().QueryString("SELECT id, unlimited FROM user")
 	if err != nil {
-		log.Warn("GC 取用户失败", log.Any("error", err.Error()))
+		log.Warn("GC: listing users failed", log.Any("error", err.Error()))
 		return 0
 	}
 	total := 0
@@ -118,7 +118,7 @@ func (g *GC) pruneMessages() int {
 	// 放在循环里的话，成本会随成员数线性放大，而效果和做一次完全一样。
 	if _, err := g.d.Engine().Exec(
 		"DELETE FROM push_log WHERE message_id NOT IN (SELECT id FROM message)"); err != nil {
-		log.Warn("清理孤儿投递记录失败", log.Any("error", err.Error()))
+		log.Warn("cleaning up orphaned delivery records failed", log.Any("error", err.Error()))
 	}
 	// gc_watermark：**这一步不能省**。
 	// 硬删之后那些行不存在了，离线很久的设备永远学不到它们没了；
@@ -151,7 +151,7 @@ func (g *GC) purgeUser(uid, cutoff int64) (int, int64) {
 	res, err := g.d.Engine().Exec(
 		"DELETE FROM message WHERE user_id=? AND created_at<?", uid, cutoff)
 	if err != nil {
-		log.Warn("GC 删除消息失败", log.Any("user", uid), log.Any("error", err.Error()))
+		log.Warn("GC: deleting messages failed", log.Any("user", uid), log.Any("error", err.Error()))
 		return 0, 0
 	}
 	n, _ := res.RowsAffected()
@@ -167,6 +167,6 @@ func (g *GC) sweepFiles() {
 		return
 	}
 	if n, err := g.files.ReleaseUnused(); err == nil && n > 0 {
-		log.Info("回收孤儿附件", log.Any("count", n))
+		log.Info("reclaimed orphaned attachments", log.Any("count", n))
 	}
 }

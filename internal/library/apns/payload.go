@@ -110,7 +110,7 @@ func Build(p Payload) ([]byte, error) {
 	if b, ok := tryMarshal(min); ok {
 		return b, nil
 	}
-	return nil, fmt.Errorf("payload 压不到 %d 字节以内", payloadLimit)
+	return nil, fmt.Errorf("cannot fit the payload into %d bytes", payloadLimit)
 }
 
 func tryMarshal(p Payload) ([]byte, bool) {

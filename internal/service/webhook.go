@@ -175,9 +175,9 @@ func (w *Webhook) Run(ctx context.Context) {
 	defer t.Stop()
 	for {
 		if n, err := w.drain(ctx); err != nil {
-			log.Error("回调队列处理失败", log.Any("error", err.Error()))
+			log.Error("webhook queue failed", log.Any("error", err.Error()))
 		} else if n > 0 {
-			log.Info("回调投递完成", log.Any("count", n))
+			log.Info("webhook delivered", log.Any("count", n))
 		}
 		select {
 		case <-ctx.Done():
@@ -234,7 +234,7 @@ func (w *Webhook) deliver(ctx context.Context, h *models.ReplyHook) {
 			models.HookAbandon, code, msg, attempt, now, h.Id)
 		// 这条日志是排障的唯一线索：用户那边显示「已回复」，而发送方什么都没收到，
 		// 两边都不会自己发现这件事。
-		log.Warn("回调投递已放弃",
+		log.Warn("webhook delivery given up",
 			log.Any("hook", h.Id), log.Any("url", h.URL),
 			log.Any("attempt", attempt), log.Any("error", msg))
 		return

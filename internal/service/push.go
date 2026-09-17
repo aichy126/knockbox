@@ -85,9 +85,9 @@ func (p *Pusher) Run(ctx context.Context) {
 	defer t.Stop()
 	for {
 		if n, err := p.drain(ctx); err != nil {
-			log.Error("推送队列处理失败", log.Any("error", err.Error()))
+			log.Error("push queue failed", log.Any("error", err.Error()))
 		} else if n > 0 {
-			log.Info("推送完成", log.Any("count", n))
+			log.Info("push delivered", log.Any("count", n))
 		}
 		select {
 		case <-ctx.Done():
@@ -150,11 +150,11 @@ func (p *Pusher) claim(limit int) ([]job, error) {
 		// 每一轮兜底扫描都把它捞出来再丢掉。
 		switch {
 		case r.MsgID == 0:
-			p.discard(r.LogID, "消息记录已不存在")
+			p.discard(r.LogID, "the message record is gone")
 		case r.DevID == 0:
-			p.discard(r.LogID, "设备记录已不存在")
+			p.discard(r.LogID, "the device record is gone")
 		case r.ChID == "":
-			p.discard(r.LogID, "频道记录已不存在")
+			p.discard(r.LogID, "the channel record is gone")
 		default:
 			out = append(out, r.job())
 		}
@@ -258,16 +258,16 @@ func (p *Pusher) deliver(ctx context.Context, j job) {
 	// 这个环境根本没配密钥：是配置问题，不是瞬时故障。
 	// 当成可重试会白试五轮、污染队列，还会把真正的原因埋在一堆退避里。
 	if !p.cl.Has(j.dev.APNsEnv) {
-		log.Error("设备所在的 APNs 环境没有配置密钥，该设备收不到推送",
+		log.Error("no key configured for this device's APNs environment: it will not receive pushes",
 			log.Any("device", j.dev.UUID), log.Any("env", j.dev.APNsEnv),
-			log.Any("fix", "在 config.toml 的 [apns."+j.dev.APNsEnv+"] 里配上密钥；只用 App Store 版 app 的话不需要 sandbox"))
-		p.finish(j, models.PushFailed, 0, "未配置 "+j.dev.APNsEnv+" 环境的 APNs 密钥", "")
+			log.Any("fix", "configure a key under [apns."+j.dev.APNsEnv+"] in config.toml; the sandbox one is only needed if you build the app yourself"))
+		p.finish(j, models.PushFailed, 0, "no APNs key for the "+j.dev.APNsEnv+" environment", "")
 		return
 	}
 
 	payload, err := kapns.Build(p.buildPayload(j))
 	if err != nil {
-		p.finish(j, models.PushFailed, 0, "payload 组装失败: "+err.Error(), "")
+		p.finish(j, models.PushFailed, 0, "cannot build the payload: "+err.Error(), "")
 		return
 	}
 	n.Payload = payload
@@ -276,7 +276,7 @@ func (p *Pusher) deliver(ctx context.Context, j job) {
 	defer cancel()
 	res, err := p.cl.Push(cctx, j.dev.APNsEnv, n)
 	if err != nil {
-		p.retry(j, 0, "传输失败: "+err.Error())
+		p.retry(j, 0, "transport failed: "+err.Error())
 		return
 	}
 	p.record(j, res)
@@ -330,7 +330,7 @@ func (p *Pusher) record(j job, res kapns.Result) {
 	if res.OK() {
 		if res.SwitchedEnv != "" {
 			// 环境纠偏成功：把设备的环境改过来，下次就直接对了。
-			log.Warn("设备 APNs 环境不符，已自动纠正",
+			log.Warn("device was in the wrong APNs environment; corrected",
 				log.Any("device", j.dev.UUID), log.Any("to", res.SwitchedEnv))
 			_, _ = p.d.Engine().Exec("UPDATE device SET apns_env = ?, updated_at = ? WHERE id = ?",
 				res.SwitchedEnv, time.Now().Unix(), j.dev.Id)
@@ -347,10 +347,10 @@ func (p *Pusher) record(j job, res kapns.Result) {
 		// 只有当它【晚于】设备最后一次更新时才能注销，否则「重装 app 拿到新 token」
 		// 之后延迟到达的旧 410 会把刚配对好的设备误杀。
 		if res.Timestamp > 0 && res.Timestamp <= j.dev.Utime {
-			log.Warn("忽略过期的 410：设备在 Apple 记录的失效时刻之后重新注册过",
+			log.Warn("ignoring a stale 410: the device re-registered after the timestamp Apple reported",
 				log.Any("device", j.dev.UUID),
 				log.Any("apns_ts", res.Timestamp), log.Any("device_updated", j.dev.Utime))
-			p.finish(j, models.PushFailed, res.StatusCode, "Unregistered（已过期，忽略）", res.APNsID)
+			p.finish(j, models.PushFailed, res.StatusCode, "Unregistered (stale, ignored)", res.APNsID)
 			return
 		}
 		_, _ = p.d.Engine().Exec(
@@ -363,14 +363,14 @@ func (p *Pusher) record(j job, res kapns.Result) {
 		// 终态：重试也不会变好。DeviceTokenNotForTopic / PayloadTooLarge 是
 		// 服务端自己配错或算错，要能在状态页上看见。
 		if res.Reason == apns2.ReasonDeviceTokenNotForTopic || res.Reason == apns2.ReasonPayloadTooLarge {
-			log.Error("APNs 配置或组装有问题", log.Any("reason", res.Reason))
+			log.Error("APNs rejected the request: check the configuration or the payload", log.Any("reason", res.Reason))
 		}
 		p.finish(j, models.PushFailed, res.StatusCode, res.Reason, res.APNsID)
 
 	case apns2.ReasonExpiredProviderToken, apns2.ReasonInvalidProviderToken,
 		apns2.ReasonMissingProviderToken, apns2.ReasonTooManyProviderTokenUpdates:
 		// 这是【服务端的密钥问题，不是设备问题】——绝对不能因此删设备。
-		log.Error("APNs 鉴权失败，请检查密钥配置", log.Any("reason", res.Reason))
+		log.Error("APNs authentication failed: check the key configuration", log.Any("reason", res.Reason))
 		p.retry(j, res.StatusCode, res.Reason)
 
 	default:
@@ -382,7 +382,7 @@ func (p *Pusher) record(j job, res kapns.Result) {
 func (p *Pusher) retry(j job, status int, reason string) {
 	attempt := j.attempt + 1
 	if attempt >= p.maxAttempts {
-		p.finish(j, models.PushAbandon, status, reason+"（已达最大重试次数）", "")
+		p.finish(j, models.PushAbandon, status, reason+" (gave up after the last attempt)", "")
 		return
 	}
 	d := withJitter(backoff[min(attempt-1, len(backoff)-1)])

@@ -114,7 +114,7 @@ func (s *Sync) scrub() {
 		"PRAGMA incremental_vacuum(2000)",
 	} {
 		if _, err := s.d.Engine().Exec(stmt); err != nil {
-			log.Warn("清理数据库页失败，删除的内容可能仍留在文件里",
+			log.Warn("vacuuming failed: deleted content may still sit in the database file",
 				log.Any("stmt", stmt), log.Any("error", err.Error()))
 		}
 	}

@@ -38,7 +38,7 @@ func (s *Session) Login(username, password, ua, ip string) (string, *models.User
 		return "", nil, err
 	}
 	if u.Role != models.RoleAdmin {
-		return "", nil, errors.New("该账号不能登录管理界面")
+		return "", nil, errors.New("this account cannot sign in to the admin interface")
 	}
 	raw := idgen.Token("sk_")
 	now := time.Now()

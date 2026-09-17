@@ -42,7 +42,7 @@ func Run(engine *xorm.Engine) error {
 	}
 	if _, err := engine.Exec(`CREATE TABLE IF NOT EXISTS schema_migration (
 		version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
-		return fmt.Errorf("创建 schema_migration 表失败: %w", err)
+		return fmt.Errorf("cannot create the schema_migration table: %w", err)
 	}
 
 	applied, err := appliedVersions(engine)
@@ -116,7 +116,7 @@ func bootstrap(engine *xorm.Engine) error {
 
 	// auto_vacuum 只在建表前生效，对已有的库无法补救，所以只警告不中断。
 	if v, err := scalar(engine, "PRAGMA auto_vacuum"); err == nil && v != "2" {
-		log.Warn("auto_vacuum 未启用，删除的空间不会自动回收",
+		log.Warn("auto_vacuum is off: space from deleted rows is not reclaimed automatically",
 			log.Any("value", v),
 			log.Any("fix", "新库请在 DSN 里加 _pragma=auto_vacuum(incremental)；已有的库需要整库 VACUUM"))
 	}
@@ -134,7 +134,7 @@ func scalar(engine *xorm.Engine, sql string) (string, error) {
 	for _, v := range rows[0] {
 		return v, nil
 	}
-	return "", fmt.Errorf("%s 返回空行", sql)
+	return "", fmt.Errorf("%s returned no rows", sql)
 }
 
 func appliedVersions(engine *xorm.Engine) (map[int]bool, error) {
@@ -146,7 +146,7 @@ func appliedVersions(engine *xorm.Engine) (map[int]bool, error) {
 	for _, r := range rows {
 		n, err := strconv.Atoi(r["version"])
 		if err != nil {
-			return nil, fmt.Errorf("schema_migration 里有非法版本号 %q: %w", r["version"], err)
+			return nil, fmt.Errorf("invalid version %q in schema_migration: %w", r["version"], err)
 		}
 		out[n] = true
 	}
@@ -168,14 +168,14 @@ func load() ([]migration, error) {
 		base := strings.TrimSuffix(e.Name(), ".sql")
 		idx := strings.Index(base, "_")
 		if idx <= 0 {
-			return nil, fmt.Errorf("迁移文件名格式应为 <版本号>_<名字>.sql，得到 %q", e.Name())
+			return nil, fmt.Errorf("a migration file must be named <version>_<name>.sql, got %q", e.Name())
 		}
 		version, err := strconv.Atoi(base[:idx])
 		if err != nil {
-			return nil, fmt.Errorf("迁移文件 %q 的版本号非法: %w", e.Name(), err)
+			return nil, fmt.Errorf("invalid version in migration file %q: %w", e.Name(), err)
 		}
 		if prev, dup := seen[version]; dup {
-			return nil, fmt.Errorf("迁移版本号 %d 重复: %s 与 %s", version, prev, e.Name())
+			return nil, fmt.Errorf("duplicate migration version %d: %s and %s", version, prev, e.Name())
 		}
 		seen[version] = e.Name()
 

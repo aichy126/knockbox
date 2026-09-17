@@ -155,7 +155,7 @@ func (e *ErrAlreadyReplied) Error() string { return errReplyDone }
 func replySpecOf(raw string) (*replyView, error) {
 	e, err := decodeExtra(raw)
 	if err != nil {
-		return nil, fmt.Errorf("读取消息附加信息失败: %w", err)
+		return nil, fmt.Errorf("cannot read the message extras: %w", err)
 	}
 	if e.Reply == nil {
 		// 有回调地址却没有规格，说明这行数据被写坏了。

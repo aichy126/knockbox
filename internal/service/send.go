@@ -332,7 +332,7 @@ func (s *Send) resolveFile(uid string, userID int64) (int64, error) {
 	var f models.File
 	has, err := s.d.Engine().Where("uid = ?", uid).Get(&f)
 	if err != nil {
-		return 0, fmt.Errorf("查询附件失败: %w", err)
+		return 0, fmt.Errorf("cannot look up the attachment: %w", err)
 	}
 	if !has || f.UserId != userID {
 		return 0, errors.New(errFileNotUsable)

@@ -57,13 +57,13 @@ type Client struct {
 // topic-specific 的密钥只能绑单一环境（Apple 的限制，保存后不可改），所以是两把。
 func New(topic string, prod, sandbox Config) (*Client, error) {
 	if topic == "" {
-		return nil, errors.New("apns.topic 没配（应为 app 的 bundle id）")
+		return nil, errors.New("apns.topic is not set (it is the app's bundle id)")
 	}
 	c := &Client{topic: topic}
 
 	pk, err := loadToken(prod, true)
 	if err != nil {
-		return nil, fmt.Errorf("生产环境密钥: %w", err)
+		return nil, fmt.Errorf("production key: %w", err)
 	}
 	if pk != nil {
 		// ⚠️ apns2.DefaultHost 是 Development。不显式 .Production() 的表现是
@@ -73,13 +73,13 @@ func New(topic string, prod, sandbox Config) (*Client, error) {
 
 	sk, err := loadToken(sandbox, false)
 	if err != nil {
-		return nil, fmt.Errorf("沙箱环境密钥: %w", err)
+		return nil, fmt.Errorf("sandbox key: %w", err)
 	}
 	if sk != nil {
 		c.sandbox = apns2.NewTokenClient(sk).Development()
 	}
 	if c.prod == nil && c.sandbox == nil {
-		return nil, errors.New("没有任何可用的 APNs 密钥")
+		return nil, errors.New("no usable APNs key")
 	}
 	return c, nil
 }
@@ -93,13 +93,13 @@ func loadToken(cfg Config, allowEmbedded bool) (*token.Token, error) {
 	case strings.TrimSpace(cfg.KeyBase64) != "":
 		b, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cfg.KeyBase64))
 		if err != nil {
-			return nil, fmt.Errorf("base64 解码失败: %w", err)
+			return nil, fmt.Errorf("cannot decode base64: %w", err)
 		}
 		raw = b
 	case strings.TrimSpace(cfg.KeyFile) != "":
 		b, err := os.ReadFile(cfg.KeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("读取 %s 失败: %w", cfg.KeyFile, err)
+			return nil, fmt.Errorf("cannot read %s: %w", cfg.KeyFile, err)
 		}
 		raw = b
 	case allowEmbedded:
@@ -109,14 +109,14 @@ func loadToken(cfg Config, allowEmbedded bool) (*token.Token, error) {
 	}
 
 	if keyID == "" {
-		return nil, errors.New("给了密钥内容但没给 key_id")
+		return nil, errors.New("a key was given without its key_id")
 	}
 	if cfg.TeamID == "" {
-		return nil, errors.New("apns.team_id 没配")
+		return nil, errors.New("apns.team_id is not set")
 	}
 	key, err := token.AuthKeyFromBytes(raw)
 	if err != nil {
-		return nil, fmt.Errorf("解析 .p8 失败: %w", err)
+		return nil, fmt.Errorf("cannot parse the .p8 key: %w", err)
 	}
 	return &token.Token{AuthKey: key, KeyID: keyID, TeamID: cfg.TeamID}, nil
 }
@@ -170,7 +170,7 @@ func (c *Client) Push(ctx context.Context, env string, n *apns2.Notification) (R
 	n.Topic = c.topic
 	cl := c.clientFor(env)
 	if cl == nil {
-		return Result{}, fmt.Errorf("没有配置 %s 环境的 APNs 密钥", env)
+		return Result{}, fmt.Errorf("no APNs key configured for the %s environment", env)
 	}
 	resp, err := cl.PushWithContext(ctx, n)
 	if err != nil {
