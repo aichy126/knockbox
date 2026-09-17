@@ -190,6 +190,13 @@ already public, nothing else stands in the way. It is a real downgrade. Two ways
 What the key can and cannot reach, and how to report a problem, are in
 [SECURITY.md](SECURITY.md).
 
+**The admin interface is in Chinese.** The pages a stranger reaches — the pairing
+page, the sending guide and their error pages — are bilingual and default to English.
+`/login` and `/admin/*` are not: they are read by whoever runs the server, and the
+person maintaining them reviews in Chinese. Nothing is locked behind them — every
+action there is also available from the CLI and the HTTP API, both of which are
+English.
+
 **Channel tokens are stored in plaintext.** The app shows you a ready-to-paste `curl`
 line, which hashing would make impossible. They are write-only credentials scoped to
 one channel, `last_used_at`/`ip` are recorded, and a channel can be rotated or deleted
