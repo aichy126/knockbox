@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aichy126/knockbox/internal/api/web"
+	"github.com/aichy126/knockbox/internal/library/bytesize"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/aichy126/knockbox/internal/service"
 	"github.com/gin-gonic/gin"
@@ -49,7 +50,7 @@ func (s *Server) adminUser(c *gin.Context) {
 	b.WriteString(web.Stat("频道", lim(usage.Channels, usage.ChannelLimit), "muted", "当前"))
 	b.WriteString(web.Stat("24 小时消息", lim(usage.Today, usage.DailyLimit), "muted", "滚动窗口"))
 	b.WriteString(web.Stat("消息总数", fmt.Sprint(usage.Messages), "muted", "未删除的"))
-	b.WriteString(web.Stat("附件占用", humanBytes(usage.FileBytes), "muted", "派生图，原图不留"))
+	b.WriteString(web.Stat("附件占用", bytesize.Decimal(usage.FileBytes), "muted", "派生图，原图不留"))
 	b.WriteString(`</div>`)
 
 	b.WriteString(web.Card("频道", "", s.channelTable(u.Id)))
