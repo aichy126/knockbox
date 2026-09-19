@@ -12,6 +12,13 @@ pushes them straight to Apple's servers, and serves the history to the
 [iOS app](https://apps.apple.com/app/id6811317906). There is no relay in between
 and no account to sign up for — the server is yours.
 
+### Just want to try it
+
+There is a public instance at <https://knockbox.miramiao.com/>. Open it on your iPhone
+with the app installed and you have your own inbox: no sign-up, no password. It runs the
+same image as below, with quotas and a 30-day retention. To keep your messages on your own
+hardware, run the server yourself as described next.
+
 ### Quick start
 
 ```bash
