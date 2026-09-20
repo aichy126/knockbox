@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { post } from '../api'
-import { me, loadMe } from '../store'
+import { me, loadMe, meProbed } from '../store'
 import { mark } from '../icons'
 import LangSwitch from '../components/LangSwitch.vue'
 
@@ -26,6 +26,12 @@ onMounted(async () => {
     const j = await r.json()
     if (j?.code === 0) server.value = { name: j.data.name, host: location.host }
   } catch { /* 拿不到就不显示，不挡登录 */ }
+  // 被守卫送过来的人，会话状态刚刚问过了，别再问一遍。
+  // 直接打开 /login 的人没问过——守卫对登录页是放行的，所以这里要补上这一问。
+  if (meProbed.value) {
+    if (me.value) router.replace(route.query.next || '/admin')
+    return
+  }
   try {
     await loadMe()
     router.replace(route.query.next || '/admin')

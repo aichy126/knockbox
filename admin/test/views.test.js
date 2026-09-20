@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { i18n, setLang } from '../src/i18n'
-import { me } from '../src/store'
+import { me, meProbed } from '../src/store'
 
 const now = Math.floor(Date.now() / 1000)
 const msg = (over = {}) => ({
@@ -133,6 +133,34 @@ describe('shell', () => {
     me.value = structuredClone(DATA.me)
     await flushPromises()
     expect(w.find('.app').exists()).toBe(true)
+    w.unmount()
+  })
+})
+
+// 登录页不再重复问一遍会话。
+//
+// 路由守卫进后台前先探 /me，401 才把人送到登录页；登录页当时又探了一次，
+// 等于每个没登录的人都白跑一趟 401，而它就落在「什么都还没画出来」的那段空白里。
+describe('login page', () => {
+  it('does not ask for the session again when the guard already did', async () => {
+    setLang('en')
+    me.value = null
+    meProbed.value = true
+    const { get } = await import('../src/api')
+    get.mockClear()
+    const w = await render('/login', views.Login[1])
+    expect(get.mock.calls.map((c) => c[0])).not.toContain('me')
+    w.unmount()
+  })
+
+  it('but does ask when someone opened /login directly', async () => {
+    setLang('en')
+    me.value = null
+    meProbed.value = false
+    const { get } = await import('../src/api')
+    get.mockClear()
+    const w = await render('/login', views.Login[1])
+    expect(get.mock.calls.map((c) => c[0])).toContain('me')
     w.unmount()
   })
 })
