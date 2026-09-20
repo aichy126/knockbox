@@ -5,3 +5,5 @@ knockbox
 *.db
 *.db-wal
 *.db-shm
+admin/node_modules
+admin/dist

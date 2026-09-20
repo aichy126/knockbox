@@ -513,18 +513,40 @@ func TestEmptyListIsArrayNotNull(t *testing.T) {
 	}
 }
 
-// 设置页的 tab 用 key 不用文案：拿文案当路由状态的话，它一翻译那条链接就点不亮了。
-// 所以这里断言的是【两种语言下同一个 ?tab=server 都打开同一页】，
-// 而判断「是哪一页」也不能靠文案——用只有那一页才有的表单字段。
-func TestSettingsTabUsesKeyNotLabel(t *testing.T) {
-	_, r, cookie, _ := adminWith(t, "别人")
-	for _, lang := range []string{"", "&lang=zh", "&lang=en"} {
-		body := adminGet(t, r, "/admin/settings?tab=server"+lang, cookie).Body.String()
-		if !strings.Contains(body, `name="current"`) {
-			t.Errorf("?tab=server%s 应当打开「服务器」那一页", lang)
-		}
-		if strings.Contains(body, "tab=%E6%9C%8D%E5%8A%A1%E5%99%A8") || strings.Contains(body, "tab=服务器") {
-			t.Errorf("?tab=server%s：链接里还有文案当路由状态", lang)
-		}
+// 搜索结果要带上回复状态。
+//
+// MessageFilter.WithBody 同时控制 body、extra 和 reply_*：不带它，replyable
+// 恒为 false，而界面正是据此判断要不要把回复区画出来——一条可回复的消息
+// 在搜索结果里会显示成普通消息，没有任何报错。
+func TestMessageSearchCarriesReplyState(t *testing.T) {
+	s, r, cookie, member := adminWith(t, "someone")
+	ch, err := service.NewChannel(s.DAO).Create(member, service.ChannelInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.NewSend(s.DAO).Deliver(ch, service.SendInput{
+		Title: "Roll back?",
+		Reply: &service.ReplySpec{Type: "choice", Options: []string{"Yes", "No"}, Webhook: "https://example.com/hook"},
+	}, "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	_, e, _ := apiGet(t, r, "/admin/api/messages?q=Roll", cookie)
+	var got struct {
+		Items []struct {
+			Replyable bool   `json:"replyable"`
+			Extra     string `json:"extra"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(e.Data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("想要 1 条，得到 %d", len(got.Items))
+	}
+	if !got.Items[0].Replyable {
+		t.Error("搜索结果里 replyable 是 false——界面会把一条可回复的消息画成普通消息")
+	}
+	if !strings.Contains(got.Items[0].Extra, "choice") {
+		t.Error("extra 没带回来，回复区画不出选项")
 	}
 }

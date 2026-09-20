@@ -51,6 +51,10 @@ const (
 	// 对着一个浏览器说「重新配对」是胡话，这里的下一步是重新登录。
 	AdminSessionExpired = "admin.session_expired"
 
+	// LoginBad 用户名或密码不对。与 AdminSessionExpired 分开：那是「登着登着掉了，
+	// 重新登一次」，这是「这次没登上」——下一步不同。
+	LoginBad = "login.bad"
+
 	// 后台里「点了一个已经不在了的东西」。三者分开是因为回去的地方不同：
 	// 成员回成员列表，设备刷新当前这一页（可能别人已经注销过了），
 	// 消息回搜索页。
@@ -79,6 +83,7 @@ var All = []string{
 	SessionInvalid,
 	FileLinkInvalid, FileGone,
 	SendTooFast, JoinTooFast, PairTooFast, LoginTooFast,
+	LoginBad,
 	QuotaChannels, QuotaDaily, QuotaDailyWithETA,
 	ChannelNotFound, ChannelExists, ChannelBadLevel,
 	ReplyNotFound, ReplyNotOpen, ReplyExpired, ReplyDone,

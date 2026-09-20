@@ -17,3 +17,8 @@ coverage.out
 
 # 构建前由流水线写入的短 commit SHA，见 Dockerfile。
 .version
+
+# 前端产物由 npm run build 生成、go:embed 收进二进制；只留 .gitkeep 让 embed 编得过。
+admin/dist/*
+!admin/dist/.gitkeep
+admin/node_modules/

@@ -25,7 +25,8 @@ Knockbox 只负责消息：存储、推送、历史、附件。谁该收哪条�
 
 ```bash
 cp config.toml.example config.toml   # 至少要改 server.external_url
-make build
+make admin   # 构建管理界面（需要 Node 20+），只改 Go 时可以跳过
+make build   # 它自己会先跑 make admin
 make run                             # 第一次启动会自动建管理员，密码打在日志里
 ./knockbox pair                      # 在终端打出二维码给 iOS 客户端扫
 ```

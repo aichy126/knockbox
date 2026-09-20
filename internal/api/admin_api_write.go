@@ -3,6 +3,7 @@ package api
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aichy126/igo/log"
 	"github.com/aichy126/igo/res"
@@ -20,6 +21,35 @@ import (
 // 是调用方写错了，所以不进 uierr——读它的是写这个前端的人。
 func badRequest(c *gin.Context, err error) {
 	res.Rfail(c, "cannot parse the request: "+err.Error())
+}
+
+// ── 登录 ──────────────────────────────────────────────
+
+// adminAPILogin 前端的登录。
+//
+// 不走 /login 那条表单 + 302 的老路：fetch 会把 302 跟到登录页、拿回一个 200 的
+// HTML，然后在 res.json() 上炸掉。这里成败都在信封里，前端据此决定是留在
+// 登录页显示错误，还是跳去它本来要去的地方。
+//
+// 【不在 AdminAuth 之下】——还没登录的人才会调它。限流与 /login 共用同一条：
+// 单账号服务最怕的就是慢速爆破。
+func (s *Server) adminAPILogin(c *gin.Context) {
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, err)
+		return
+	}
+	raw, u, err := service.NewSession(s.DAO).Login(in.Username, in.Password, c.GetHeader("User-Agent"), c.ClientIP())
+	if err != nil {
+		// 用户名不存在和密码错误给同一句话，不让登录接口变成账号枚举器。
+		s.fail(c, uierr.New(uierr.LoginBad))
+		return
+	}
+	s.setSessionCookie(c, raw, int(service.SessionTTL/time.Second))
+	res.Rsucc(c, gin.H{"username": u.Username})
 }
 
 // ── 登出 ──────────────────────────────────────────────
@@ -166,7 +196,7 @@ func (s *Server) adminAPIPairIssue(c *gin.Context) {
 		s.adminFail(c, "issue pair code", err)
 		return
 	}
-	qr, err := web.QRSVG(code.DeepLink, 240)
+	qr, err := web.QRSVG(code.DeepLink, 240, web.T(reqLang(c)).JoinQRAlt)
 	if err != nil {
 		// 码本身是好的，只是画不出来。别让一张图把整个签发废掉——
 		// Display 那串字手输同样能配对。

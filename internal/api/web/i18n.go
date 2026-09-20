@@ -203,6 +203,8 @@ type Texts struct {
 	JoinOpenSend   string `json:"join_open_send"`
 	JoinKeepSecret string `json:"join_keep_secret"`
 	JoinAddDevice  string `json:"join_add_device"`
+	// JoinQRAlt 二维码的无障碍标签。它读给屏幕阅读器，和界面上其余的字一样要翻。
+	JoinQRAlt string `json:"join_qr_alt"`
 
 	// ── 发送说明页 ──────────────────────────────────────────
 	GuideDocsTitle    string `json:"guide_docs_title"` // /docs 形态的大标题，会接上服务器名

@@ -1,0 +1,24 @@
+{
+  "name": "knockbox-admin",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node -e \"import('node:fs').then(f => f.writeFileSync('dist/.gitkeep', ''))\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.15",
+    "marked": "^18.0.13",
+    "vue": "^3.5.43",
+    "vue-i18n": "^11.4.12",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "@vue/test-utils": "^2.5.1",
+    "jsdom": "^30.1.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}

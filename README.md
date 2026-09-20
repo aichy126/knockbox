@@ -110,7 +110,8 @@ their devices, pairing, and the settings that take effect without a restart.
 
 Every page, this interface included, is English and Chinese, switchable from the top
 right; the admin interface remembers the choice. Adding a language is adding one JSON
-file to `internal/api/web/locales/` — no Go code changes.
+file to `internal/api/web/locales/` — the server and the admin interface read the same
+one, so there is no second copy to keep in step.
 
 ## Documentation
 

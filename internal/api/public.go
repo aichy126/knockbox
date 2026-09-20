@@ -56,7 +56,7 @@ func (s *Server) joinPage(c *gin.Context, notice string) {
 			strings.HasPrefix(s.ExternalURL, "https"), true)
 	}
 	link := code.DeepLink
-	qr, err := web.QRSVG(link, 248)
+	qr, err := web.QRSVG(link, 248, t.JoinQRAlt)
 	if err != nil {
 		c.String(http.StatusInternalServerError, t.ErrQRFailed+err.Error())
 		return

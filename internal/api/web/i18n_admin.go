@@ -159,6 +159,8 @@ type AdminChannel struct {
 	Expired      string `json:"expired"`
 	WaitingTill  string `json:"waiting_till"`
 	WaitingOpen  string `json:"waiting_open"`
+	MatchOne     string `json:"match_one"` // 搜索命中数，英语的 1 和其余不一样
+	MatchCount   string `json:"match_count"`
 }
 
 // AdminMute 静音状态。频道表和频道页都用。
@@ -201,8 +203,6 @@ type AdminUsers struct {
 	EmptyAll    string `json:"empty_all"`
 	ColLogin    string `json:"col_login"`
 	ColQuota    string `json:"col_quota"`
-	PagerOne    string `json:"pager_one"`
-	PagerInfo   string `json:"pager_info"`
 	Note        string `json:"note"`
 	Unlimited   string `json:"unlimited"`
 	UnlimitedOn string `json:"unlimited_on"`

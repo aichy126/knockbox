@@ -1,10 +1,24 @@
 # --platform=$BUILDPLATFORM：多架构构建时在原生架构上编，不进 QEMU。
 # CGO_ENABLED=0 让交叉编译零成本，所以 arm64 的镜像也是原生速度出的。
+# 管理界面先构建。它【必须】在 go build 之前完成：go:embed all:dist 在目录存在时
+# 照样编得过（dist/.gitkeep 保证了这一点），embed 进去的却是一个空目录——
+# 镜像能起、健康检查能过、CI 全绿，只有后台是一片空白。
+FROM --platform=$BUILDPLATFORM node:22-alpine AS admin
+WORKDIR /src
+COPY admin/package.json admin/package-lock.json ./admin/
+RUN cd admin && npm ci
+COPY admin ./admin
+COPY internal/api/web/locales ./internal/api/web/locales
+COPY internal/api/web/tokens.css ./internal/api/web/tokens.css
+RUN cd admin && npm run build
+
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# 覆盖掉 .dockerignore 排除的空 dist
+COPY --from=admin /src/admin/dist ./admin/dist
 # 版本号按优先级取：--build-arg VERSION → 构建上下文里的 .version 文件 → dev。
 # 留第二条路是因为有的构建系统传不了 build-arg，只能在构建前往工作区写文件。
 # 两处 :- 都不能省：ARG 缺省给空串，第二条路才轮得到；.version 缺失或为空，才回落 dev

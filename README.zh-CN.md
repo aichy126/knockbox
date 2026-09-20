@@ -104,7 +104,8 @@ Linux、macOS、Windows、FreeBSD 的预编译二进制。**不需要数据库�
 </p>
 
 **每一页都是中英双语**，这个后台也是，右上角可以切，后台还会记住你的选择。
-加一门语言就是往 `internal/api/web/locales/` 放一个 JSON 文件，Go 代码一行不用改。
+加一门语言就是往 `internal/api/web/locales/` 放一个 JSON 文件——服务端和后台读的是
+同一份，不存在第二份要跟着改。
 
 ## 文档
 

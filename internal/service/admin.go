@@ -100,10 +100,12 @@ func (a *Admin) Overview(uid, since, window int64) (OverviewStat, error) {
 }
 
 // FailureRow 推送失败的一种。按 reason + http_status 聚合。
+// FailureRow 会直接进 /admin/api/overview 的响应，所以 json tag 是必需的：
+// 少了它字段名就是 Go 的大驼峰，前端读到 undefined，界面每一格都空着且不报错。
 type FailureRow struct {
-	Reason     string `xorm:"'reason'"`
-	HTTPStatus int    `xorm:"'http_status'"`
-	Count      int64  `xorm:"'n'"`
+	Reason     string `xorm:"'reason'" json:"reason"`
+	HTTPStatus int    `xorm:"'http_status'" json:"http_status"`
+	Count      int64  `xorm:"'n'" json:"count"`
 }
 
 func (a *Admin) Failures(uid, since int64, limit int) ([]FailureRow, error) {
@@ -247,15 +249,16 @@ func (a *Admin) Message(uid string) (*models.Message, *models.Channel, error) {
 }
 
 // PushLogRow 一次投递尝试。
+// PushLogRow 同样直接进响应（消息详情的投递记录）。
 type PushLogRow struct {
-	Status     int    `xorm:"'status'"`
-	HTTPStatus int    `xorm:"'http_status'"`
-	Reason     string `xorm:"'reason'"`
-	Attempts   int    `xorm:"'attempts'"`
-	APNsID     string `xorm:"'apns_id'"`
-	Utime      int64  `xorm:"'updated_at'"`
-	Device     string `xorm:"'name'"`
-	APNsEnv    string `xorm:"'apns_env'"`
+	Status     int    `xorm:"'status'" json:"status"`
+	HTTPStatus int    `xorm:"'http_status'" json:"http_status"`
+	Reason     string `xorm:"'reason'" json:"reason"`
+	Attempts   int    `xorm:"'attempts'" json:"attempts"`
+	APNsID     string `xorm:"'apns_id'" json:"apns_id"`
+	Utime      int64  `xorm:"'updated_at'" json:"updated_at"`
+	Device     string `xorm:"'name'" json:"device"`
+	APNsEnv    string `xorm:"'apns_env'" json:"apns_env"`
 }
 
 func (a *Admin) PushLog(msgID int64) ([]PushLogRow, error) {
@@ -269,12 +272,13 @@ func (a *Admin) PushLog(msgID int64) ([]PushLogRow, error) {
 }
 
 // ReplyHookRow 一次回调投递。
+// ReplyHookRow 同样直接进响应（消息详情的回调记录）。
 type ReplyHookRow struct {
-	Status     int    `xorm:"'status'"`
-	Attempt    int    `xorm:"'attempt'"`
-	StatusCode int    `xorm:"'status_code'"`
-	Error      string `xorm:"'error'"`
-	Utime      int64  `xorm:"'updated_at'"`
+	Status     int    `xorm:"'status'" json:"status"`
+	Attempt    int    `xorm:"'attempt'" json:"attempt"`
+	StatusCode int    `xorm:"'status_code'" json:"status_code"`
+	Error      string `xorm:"'error'" json:"error"`
+	Utime      int64  `xorm:"'updated_at'" json:"updated_at"`
 }
 
 func (a *Admin) ReplyHooks(msgID int64) ([]ReplyHookRow, error) {

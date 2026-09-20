@@ -22,6 +22,7 @@
   "join_open_send": "Open the send page",
   "join_keep_secret": "<b>Do not post it anywhere public</b> — anyone holding it can send to your channel.",
   "join_add_device": "To add another device, generate a code in the app.",
+  "join_qr_alt": "Pairing QR code",
   "guide_docs_title": "Using %s",
   "guide_docs_lede": "Anything that can make one HTTP request can push a message to your iPhone — home automation, a price watcher, a script you wrote, or your own coding agent.",
   "guide_channel_lede": "This page belongs to one channel, and the address already carries its token. Bookmark it — how to send, what it looks like on the phone, and what to hand an AI agent are all here. Every example has a “Send this one” button, so you can see it work before copying anything.",
@@ -102,7 +103,8 @@
     "reply.out_of_range": "Pick a value between %g and %g.",
     "send.too_fast": "Sending too fast. Slow down and try again.",
     "session.invalid": "This device is no longer paired. Pair it again.",
-    "setting.bad_value": "The value for %s is not valid. Nothing was saved."
+    "setting.bad_value": "The value for %s is not valid. Nothing was saved.",
+    "login.bad": "That username or password is not correct."
   },
   "admin": {
     "nav": {
@@ -149,7 +151,8 @@
       "dash": "—",
       "pw_change_fail": "The password was not changed. The server log has the reason.",
       "no_reason": "(no reason given)",
-      "action_fail": "That did not go through. The server log has the reason."
+      "action_fail": "That did not go through. The server log has the reason.",
+      "cancel": "Cancel"
     },
     "time": {
       "just_now": "just now",
@@ -230,7 +233,9 @@
       "replied": "Answered",
       "expired": "The time limit passed at %s with no answer",
       "waiting_till": "Waiting · until %s",
-      "waiting_open": "Waiting · no time limit"
+      "waiting_open": "Waiting · no time limit",
+      "match_one": "%d match",
+      "match_count": "%d matches"
     },
     "mute": {
       "always": "Muted",
@@ -267,8 +272,6 @@
       "empty_all": "No members yet. Pair a device from the top right and the first one appears.",
       "col_login": "Last sign-in",
       "col_quota": "Quota",
-      "pager_one": "Page %d · %d person",
-      "pager_info": "Page %d · %d people",
       "note": "People who join by scanning are <b>recipients</b>: no username, no password, no way into this interface — their identity is the credential on the device. The first admin is created when the server first starts; add more from the command line — <code class=\"code\">knockbox user add &lt;name&gt;</code>.",
       "unlimited": "Exempt from quota",
       "unlimited_on": "Exempt · click to restore"
