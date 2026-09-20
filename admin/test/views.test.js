@@ -119,3 +119,20 @@ describe('breadcrumbs', () => {
     w.unmount()
   })
 })
+
+// 外壳不能在拿到身份之前画出来。
+//
+// 画得出来的话，它就是一个顶栏写着「?」、版本号空着的空后台——
+// 未登录的人第一眼看到的就是它，然后才被换成登录页。
+describe('shell', () => {
+  it('renders nothing until me is loaded', async () => {
+    setLang('en')
+    me.value = null
+    const w = await render('/admin', views.Shell[1])
+    expect(w.find('.app').exists()).toBe(false)
+    me.value = structuredClone(DATA.me)
+    await flushPromises()
+    expect(w.find('.app').exists()).toBe(true)
+    w.unmount()
+  })
+})
