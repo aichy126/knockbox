@@ -13,9 +13,9 @@ import (
 
 func (s *Server) html(c *gin.Context, status int, name string, d web.Data) {
 	d.ServerName = s.Name
-	out, err := web.Render(name, d)
+	out, err := web.Render(name, reqLang(c), d)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "渲染失败: %v", err)
+		c.String(http.StatusInternalServerError, "rendering the page failed: %v", err)
 		return
 	}
 	c.Data(status, "text/html; charset=utf-8", []byte(out))
@@ -28,9 +28,10 @@ func (s *Server) loginPage(c *gin.Context) {
 			return
 		}
 	}
-	d := web.Data{Title: "登录"}
+	t := web.T(reqLang(c)).Admin.Login
+	d := web.Data{Title: t.Title}
 	if c.Query("changed") == "1" {
-		d.Notice = "密码已修改，请用新密码登录。"
+		d.Notice = t.Changed
 	}
 	s.html(c, http.StatusOK, "login", d)
 }
@@ -40,7 +41,8 @@ func (s *Server) doLogin(c *gin.Context) {
 		c.PostForm("username"), c.PostForm("password"), c.GetHeader("User-Agent"), c.ClientIP())
 	if err != nil {
 		// 用户名不存在和密码错误给同一句话，不让登录页变成账号枚举器。
-		s.html(c, http.StatusUnauthorized, "login", web.Data{Title: "登录", Error: "用户名或密码不正确"})
+		t := web.T(reqLang(c)).Admin.Login
+		s.html(c, http.StatusUnauthorized, "login", web.Data{Title: t.Title, Error: t.Bad})
 		return
 	}
 	s.setSessionCookie(c, raw, int(service.SessionTTL/time.Second))

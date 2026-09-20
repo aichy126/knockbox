@@ -93,13 +93,24 @@ binaries for Linux, macOS, Windows and FreeBSD on every tagged release.
 
 ## It comes with its own pages
 
-The server serves a sending guide at `/docs` — bilingual, with your address already
-filled in and a "send this one" button on every example. The public instance's copy is
-at <https://knockbox.miramiao.com/docs>.
+The server serves a sending guide at `/docs` — with your address already filled in and
+a "send this one" button on every example. The public instance's copy is at
+<https://knockbox.miramiao.com/docs>.
 
 <p align="center">
   <img src="https://aichy126.github.io/miramiao/knockbox/images/web-docs-en.png" width="760" alt="The built-in sending guide, showing a send address and ready-to-run curl examples">
 </p>
+
+Behind `/login` there is an admin interface: an overview, message search, members and
+their devices, pairing, and the settings that take effect without a restart.
+
+<p align="center">
+  <img src="https://aichy126.github.io/miramiao/knockbox/images/web-admin-en.png" width="760" alt="The admin overview: counters for messages, push success rate, reachable devices and channels, with a list of recent messages">
+</p>
+
+Every page, this interface included, is English and Chinese, switchable from the top
+right; the admin interface remembers the choice. Adding a language is adding one JSON
+file to `internal/api/web/locales/` — no Go code changes.
 
 ## Documentation
 
@@ -128,10 +139,6 @@ These are choices, not omissions. Read them before you deploy.
 - **Channel tokens are stored in plaintext**, because the app shows you a
   ready-to-paste `curl` line and hashing would make that impossible. They are
   write-only, scoped to one channel, rate-limited, and can be rotated at any time.
-- **The admin interface is in Chinese.** The pages a stranger reaches — the sign-up
-  page, the sending guide and their error pages — are bilingual and default to English.
-  `/login` and `/admin/*` are not. Nothing is locked behind them: every action is also
-  available from the CLI and the HTTP API, both of which are English.
 - **`/admin/api/*` is not a public contract.** `/api/v1` is. Everything under
   `/admin/api/` serves the admin interface that ships here and will change whenever it
   does. [→](docs/api.md#what-is-a-public-contract)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"sort"
 	"strings"
 )
@@ -81,14 +82,31 @@ func mustLoadLocale(path string, dst *Texts) {
 // Langs 已注册的语言，英文在最前。
 func Langs() []Lang { return langs }
 
+// KnownLang 这个标记对得上某一门已注册的语言吗。
+// 语言开关会把用户给的值交到这里，所以它必须是个白名单判断，
+// 而不是「拿过来就往 cookie 里写」。
+func KnownLang(tag string) (Lang, bool) { return matchLang(tag) }
+
+// LangCookie 记住语言偏好的 cookie 名。
+//
+// 只有管理界面写它：那是登录进来长期看的地方，每开一页都回落到浏览器语言
+// 会很别扭。公开页仍然只按本次请求判定——一个陌生人点一次语言开关，
+// 不该在他的浏览器里留下东西。两边都【读】它：同一个人在后台选了中文，
+// 公开页跟着中文才是对的。
+const LangCookie = "lang"
+
 // PickLang 决定这次请求用哪种语言。
 //
-// 顺序是 `?lang=` → Accept-Language → 英文。查询参数放在最前，是因为页面上
-// 那个语言开关靠它；同时它也让「想看另一种语言」这件事不依赖改浏览器设置。
+// 顺序是 `?lang=` → cookie → Accept-Language → 英文。查询参数放在最前，
+// 是因为公开页上那个语言开关靠它；同时它也让「想看另一种语言」这件事
+// 不依赖改浏览器设置。
 //
 // **默认英文**：这是一个面向全球的开源项目，中文是其中一种，不是基准。
-func PickLang(query, acceptLanguage string) Lang {
+func PickLang(query, cookie, acceptLanguage string) Lang {
 	if l, ok := matchLang(query); ok {
+		return l
+	}
+	if l, ok := matchLang(cookie); ok {
 		return l
 	}
 	// 真实的头长这样 `zh-CN,zh;q=0.9,en;q=0.8`：按出现顺序取第一个认识的。
@@ -143,10 +161,11 @@ func T(l Lang) Texts {
 	return texts[LangEN]
 }
 
-// Texts 对外页面上的每一句话。
+// Texts 页面上的每一句话。
 //
-// **只收公共接入这条路上的字**：接入页、发送说明页、以及它们的错误落地页。
-// 管理界面（/login 与 /admin/*）是给服务器运维者看的，不在这里。
+// 分两部分：公共接入这条路上的字（接入页、发送说明页、错误落地页）直接摊在
+// 这里，管理界面的字在 Admin 下面分页放。分开是因为两边的读者不同——
+// 前者是收到链接的陌生人，后者是运行这台服务器的人。
 type Texts struct {
 	// 语言开关上显示的是【别的语言】的名字，所以这里写的是这门语言自己的名字
 	// —— 一个中文用户看不懂英文的「Language」，反过来也一样。
@@ -235,6 +254,11 @@ type Texts struct {
 	ErrJoinTooFast   string `json:"err_join_too_fast"`
 	ErrIssueFailed   string `json:"err_issue_failed"`
 	ErrQRFailed      string `json:"err_q_r_failed"`
+
+	// Admin 管理界面（/login 与 /admin/*）。嵌套而不是摊平：它有两百多条，
+	// 摊进来会把上面这张表淹掉。嵌套结构体在 json.Unmarshal 时是逐字段覆盖，
+	// 所以「先拷一份英文再往上盖」的回落照样成立，不必像 UserErrors 那样手动 Clone。
+	Admin AdminTexts `json:"admin"`
 }
 
 // UserError 把一个错误 code 渲染成这一语的句子。
@@ -269,6 +293,43 @@ func LangSwitch(cur Lang) string {
 	return b.String()
 }
 
+// AdminLangSwitch 管理界面顶栏里的语言开关。
+//
+// 和公开页那个不一样：它指向 /lang，由服务端落一个 cookie 再跳回来。
+// 后台是登录进来一待就是几十页的地方，语言得记住；公开页只看一次，不留痕迹。
+// next 是切换后回到的地址，服务端会校验它只能是本站的相对路径。
+func AdminLangSwitch(cur Lang, next string) string {
+	return langSwitchTo(cur, next, "langsw-admin", "btn ghost sm")
+}
+
+// LoginLangSwitch 登录页的语言开关。
+//
+// 链接和后台一样会落 cookie —— 在这里切了语言，登录进去的后台就是那门语言，
+// 否则一进门又跳回浏览器语言，等于白切。样式借公开页那套固定在右上角：
+// 登录页没有顶栏可以挂。
+func LoginLangSwitch(cur Lang) string {
+	return langSwitchTo(cur, "/login", "langsw", "")
+}
+
+func langSwitchTo(cur Lang, next, wrapClass, btnClass string) string {
+	var b strings.Builder
+	b.WriteString(`<nav class="` + wrapClass + `">`)
+	for _, l := range langs {
+		if l == cur {
+			continue
+		}
+		cls := ""
+		if btnClass != "" {
+			cls = ` class="` + btnClass + `"`
+		}
+		b.WriteString(`<a` + cls + ` href="/lang?to=` + string(l) +
+			`&next=` + url.QueryEscape(next) + `" hreflang="` + l.Attr() + `">` +
+			E(T(l).LangName) + `</a>`)
+	}
+	b.WriteString(`</nav>`)
+	return b.String()
+}
+
 // LangCSS 开关的样式。固定在右上角，不参与各页自己的栅格。
 const LangCSS = `
 .langsw{position:fixed;top:14px;right:16px;z-index:9;display:flex;gap:6px}
@@ -277,3 +338,22 @@ const LangCSS = `
   color:var(--muted-fg);text-decoration:none}
 .langsw a:hover{color:var(--fg);border-color:var(--fg)}
 `
+
+// AdminLangCSS 后台顶栏那个开关的样式。它跟在退出登录旁边，
+// 用同一套 btn ghost sm，所以这里只管间距。
+const AdminLangCSS = `
+.langsw-admin{display:inline-flex;gap:6px;margin-right:8px}
+`
+
+// Plural 按数量选一条，再填进数字。
+//
+// 英语把 1 和其余分开，中文不分——中文那两条写成一样的就行。
+// 这是个刻意简化的规则：够用于英语和中文，而不够的语言（俄语的
+// 少数/复数、阿拉伯语的六档）要的是完整的 CLDR 复数规则，那时再换。
+// 在此之前，写一个假装通用的实现只会让人以为它已经通用了。
+func Plural(n int, one, other string) string {
+	if n == 1 {
+		return fmt.Sprintf(one, n)
+	}
+	return fmt.Sprintf(other, n)
+}

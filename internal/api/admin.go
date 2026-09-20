@@ -22,32 +22,35 @@ func (s *Server) shell(c *gin.Context, nav string, crumbs []web.Crumb, body stri
 // shellFlat flat=true 时内容区不滚，由页面内部的滚动区负责（频道那种聊天窗布局）。
 func (s *Server) shellFlat(c *gin.Context, nav string, crumbs []web.Crumb, body string, flat bool) {
 	page := web.Shell{
+		Lang: reqLang(c), Path: c.Request.URL.RequestURI(),
 		Nav: nav, Crumbs: crumbs, ServerName: s.Name, Host: hostOf(s.ExternalURL),
 		Version: s.Version, Online: true, Body: body, Flat: flat,
 	}.Render()
 	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(page))
 }
 
-func ago(ts int64) string {
+func ago(l web.Lang, ts int64) string {
+	t := web.T(l).Admin
 	if ts <= 0 {
-		return "—"
+		return t.Common.Dash
 	}
 	d := time.Since(time.Unix(ts, 0))
 	switch {
 	case d < time.Minute:
-		return "刚刚"
+		return t.Time.JustNow
 	case d < time.Hour:
-		return fmt.Sprintf("%d 分钟前", int(d.Minutes()))
+		return fmt.Sprintf(t.Time.MinutesAgo, int(d.Minutes()))
 	case d < 24*time.Hour:
-		return fmt.Sprintf("%d 小时前", int(d.Hours()))
+		return fmt.Sprintf(t.Time.HoursAgo, int(d.Hours()))
 	case d < 30*24*time.Hour:
-		return fmt.Sprintf("%d 天前", int(d.Hours()/24))
+		return fmt.Sprintf(t.Time.DaysAgo, int(d.Hours()/24))
 	}
 	return time.Unix(ts, 0).Format("2006-01-02")
 }
 
 func clock(ts int64) string {
 	if ts <= 0 {
+		// 破折号在两种语言里长一样，不必进语料。
 		return "—"
 	}
 	t := time.Unix(ts, 0)
@@ -80,6 +83,7 @@ func channelName(meta, id string) string {
 // ── 概览 ──────────────────────────────────────────────
 
 func (s *Server) adminDash(c *gin.Context) {
+	v := newAdminView(c)
 	const window = int64(24 * 3600)
 	since := time.Now().Unix() - window
 
@@ -105,56 +109,58 @@ func (s *Server) adminDash(c *gin.Context) {
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div class="ph"><div><h1>概览</h1><div class="sub">` +
-		web.E(s.Name) + ` · 最近 24 小时</div></div></div>`)
+	b.WriteString(`<div class="ph"><div><h1>` + web.E(v.t.Nav.Dash) + `</h1><div class="sub">` +
+		web.E(s.Name) + web.E(v.t.Dash.Last24h) + `</div></div></div>`)
 	b.WriteString(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">`)
-	b.WriteString(web.Stat("24 小时消息", strconv.FormatInt(o.Messages, 10), "muted",
-		fmt.Sprintf("前一天 %d", o.MessagesPrev)))
-	b.WriteString(web.Stat("推送成功率", rate, rateKind,
-		fmt.Sprintf("%d 条失败 · %d 条重试中", o.PushFailed, o.PushRetrying)))
-	b.WriteString(web.Stat("可推送设备", strconv.FormatInt(o.DevicesPushable, 10), "info",
-		fmt.Sprintf("%d 台走沙箱", o.DevicesSandbox)))
-	b.WriteString(web.Stat("频道", strconv.FormatInt(o.Channels, 10), "muted",
-		fmt.Sprintf("%d 个静音", o.ChannelsMuted)))
+	b.WriteString(web.Stat(v.t.Dash.Msgs24h, strconv.FormatInt(o.Messages, 10), "muted",
+		fmt.Sprintf(v.t.Dash.PrevDay, o.MessagesPrev)))
+	b.WriteString(web.Stat(v.t.Dash.PushRate, rate, rateKind,
+		fmt.Sprintf(v.t.Dash.FailRetry, o.PushFailed, o.PushRetrying)))
+	b.WriteString(web.Stat(v.t.Dash.Reachable, strconv.FormatInt(o.DevicesPushable, 10), "info",
+		fmt.Sprintf(v.t.Dash.SandboxCount, o.DevicesSandbox)))
+	b.WriteString(web.Stat(v.t.Dash.Channels, strconv.FormatInt(o.Channels, 10), "muted",
+		fmt.Sprintf(v.t.Dash.MutedCount, o.ChannelsMuted)))
 	b.WriteString(`</div>`)
 
 	b.WriteString(`<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start">`)
-	b.WriteString(web.Card("最近消息",
-		`<a class="btn ghost sm" href="/admin/messages">查看全部`+web.Svg("chev", 14)+`</a>`,
-		s.recentMessages(0, 8)))
-	b.WriteString(web.Card("推送失败 · 24 小时", "", s.failureBreakdown(0, since)))
+	b.WriteString(web.Card(v.t.Dash.Recent,
+		`<a class="btn ghost sm" href="/admin/messages">`+web.E(v.t.Dash.ViewAll)+web.Svg("chev", 14)+`</a>`,
+		s.recentMessages(v, 0, 8)))
+	b.WriteString(web.Card(v.t.Dash.Failures24h, "", s.failureBreakdown(v, 0, since)))
 	b.WriteString(`</div>`)
 
-	s.shell(c, "dash", []web.Crumb{web.C("概览")}, b.String())
+	s.shell(c, "dash", []web.Crumb{web.C(v.t.Nav.Dash)}, b.String())
 }
 
-func (s *Server) recentMessages(uid int64, limit int) string {
+func (s *Server) recentMessages(v adminView, uid int64, limit int) string {
 	rows, err := s.admin().RecentMessages(uid, limit)
 	if err != nil {
 		log.Error("admin: recent messages failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return web.Empty("还没有消息。往任意一个频道 curl 一条试试。")
+		return web.Empty(v.t.Dash.Empty)
 	}
 	var b strings.Builder
-	b.WriteString(`<table><thead><tr><th style="padding-left:16px">时间</th><th>频道</th>` +
-		`<th>类型</th><th>标题</th><th>推送</th></tr></thead><tbody>`)
+	fmt.Fprintf(&b, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th>`+
+		`<th>%s</th><th>%s</th><th>%s</th></tr></thead><tbody>`,
+		web.E(v.t.Common.Time), web.E(v.t.Common.Channel), web.E(v.t.Common.Type),
+		web.E(v.t.Common.Title), web.E(v.t.Common.Push))
 	for _, r := range rows {
 		fmt.Fprintf(&b, `<tr><td style="padding-left:16px" class="dim num">%s</td><td>%s</td>`+
 			`<td><span class="badge muted">%s</span></td>`+
 			`<td style="font-weight:500"><a href="/admin/messages/%s">%s</a></td><td>%s</td></tr>`,
 			clock(r.Ctime), web.E(channelName(r.Meta, r.ChannelId)), web.E(r.Type),
 			web.E(r.UID), web.E(trunc(firstNonEmpty(r.Title, r.Summary), 42)),
-			pushBadge(r.PushOK, r.PushTotal))
+			pushBadge(v, r.PushOK, r.PushTotal))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
 }
 
-func pushBadge(ok, total int64) string {
+func pushBadge(v adminView, ok, total int64) string {
 	switch {
 	case total == 0:
-		return `<span class="badge muted"><i></i>未推送</span>`
+		return `<span class="badge muted"><i></i>` + web.E(v.t.Common.NotPushed) + `</span>`
 	case ok == total:
 		return fmt.Sprintf(`<span class="badge ok"><i></i>%d/%d</span>`, ok, total)
 	case ok == 0:
@@ -163,13 +169,14 @@ func pushBadge(ok, total int64) string {
 	return fmt.Sprintf(`<span class="badge warn"><i></i>%d/%d</span>`, ok, total)
 }
 
-func (s *Server) failureBreakdown(uid, since int64) string {
+func (s *Server) failureBreakdown(v adminView, uid, since int64) string {
 	rows, err := s.admin().Failures(uid, since, 6)
 	if err != nil {
 		log.Error("admin: failure breakdown failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return `<div class="card-b"><div class="badge ok"><i></i>24 小时内没有失败</div></div>`
+		return `<div class="card-b"><div class="badge ok"><i></i>` +
+			web.E(v.t.Dash.NoFailures) + `</div></div>`
 	}
 	var b strings.Builder
 	b.WriteString(`<div class="card-b" style="display:flex;flex-direction:column;gap:10px">`)
@@ -177,11 +184,11 @@ func (s *Server) failureBreakdown(uid, since int64) string {
 		fmt.Fprintf(&b, `<div style="display:flex;align-items:center;gap:10px">`+
 			`<span class="mono">%s</span><span class="badge muted">%d</span>`+
 			`<div class="spacer"></div><span class="num" style="font-weight:600">%d</span></div>`,
-			web.E(r.Reason), r.HTTPStatus, r.Count)
+			web.E(firstNonEmpty(r.Reason, v.t.Common.NoReason)), r.HTTPStatus, r.Count)
 	}
+	// 语料里带 <b>，是我们自己写的文案，不过 E()。
 	b.WriteString(`<div class="note">` + web.Svg("alert", 14) +
-		`<div>收到 <b>410 Unregistered</b> 只在 Apple 给的时间戳晚于设备最后更新时才注销 —— ` +
-		`重装后延迟到达的旧 410 不会误杀刚配对的设备。</div></div></div>`)
+		`<div>` + v.t.Dash.UnregNote + `</div></div></div>`)
 	return b.String()
 }
 
@@ -200,3 +207,20 @@ func (s *Server) admin() *service.Admin { return service.NewAdmin(s.DAO) }
 func (s *Server) quota() *service.Quota {
 	return service.NewQuota(s.DAO, s.Settings.Limits())
 }
+
+// adminView 一次后台页面渲染要带着的东西：这次请求的语言，以及取好的文案。
+//
+// 后台的每个渲染函数都需要它，所以给它一个名字而不是到处多传一个 web.Lang
+// —— 后者还要在每个函数里再写一遍 web.T(l).Admin。
+type adminView struct {
+	l web.Lang
+	t web.AdminTexts
+}
+
+func newAdminView(c *gin.Context) adminView {
+	l := reqLang(c)
+	return adminView{l: l, t: web.T(l).Admin}
+}
+
+// ago 相对时间。表里每一行都要它，所以挂在这里。
+func (v adminView) ago(ts int64) string { return ago(v.l, ts) }

@@ -46,7 +46,7 @@ func (s *Server) adminPairIssue(c *gin.Context) {
 	}
 	u, err := s.admin().CreateMember(name)
 	if err != nil {
-		s.renderAdminPair(c, nil, "建成员失败："+err.Error())
+		s.renderAdminPair(c, nil, fmt.Sprintf(web.T(reqLang(c)).Admin.Pair.CreateFail, err.Error()))
 		return
 	}
 	s.issueFor(c, u.Id)
@@ -55,13 +55,14 @@ func (s *Server) adminPairIssue(c *gin.Context) {
 func (s *Server) issueFor(c *gin.Context, uid int64) {
 	code, err := service.NewPair(s.DAO).Issue(uid, s.ExternalURL, "admin", s.PairTTL)
 	if err != nil {
-		s.renderAdminPair(c, nil, "签发配对码失败："+err.Error())
+		s.renderAdminPair(c, nil, fmt.Sprintf(web.T(reqLang(c)).Admin.Pair.IssueFail, err.Error()))
 		return
 	}
 	s.renderAdminPair(c, code, "")
 }
 
 func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg string) {
+	v := newAdminView(c)
 	me := middleware.UserID(c)
 	users, err := s.admin().MemberNames()
 	if err != nil {
@@ -69,8 +70,8 @@ func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg 
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div class="ph"><div><h1>配对设备</h1>` +
-		`<div class="sub">给某个成员加一台设备。新成员也可以在这里顺手建。</div></div></div>`)
+	b.WriteString(`<div class="ph"><div><h1>` + web.E(v.t.Nav.Pair) + `</h1>` +
+		`<div class="sub">` + web.E(v.t.Pair.Sub) + `</div></div></div>`)
 	if errMsg != "" {
 		b.WriteString(`<div class="err">` + web.E(errMsg) + `</div>`)
 	}
@@ -80,24 +81,27 @@ func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg 
 	myName := s.admin().MemberName(me)
 	var sel strings.Builder
 	fmt.Fprintf(&sel, `<span class="picker"><input name="user" list="pOpts" value="%s" `+
-		`placeholder="成员名字" autocomplete="off"><datalist id="pOpts">`, web.E(myName))
+		`placeholder="%s" autocomplete="off"><datalist id="pOpts">`,
+		web.E(myName), web.E(v.t.Pair.NamePh))
 	for _, u := range users {
 		fmt.Fprintf(&sel, `<option value="%s">`, web.E(u.Name))
 	}
-	fmt.Fprintf(&sel, `</datalist><span class="hint">%d 人</span></span>`, len(users))
+	fmt.Fprintf(&sel, `</datalist><span class="hint">%s</span></span>`,
+		web.E(web.Plural(len(users), v.t.Common.PeopleOne, v.t.Common.PeopleCount)))
 
 	form := `<div class="card-b"><form method="post" action="/admin/pair" class="tools">` +
-		`<span class="dim">发给</span>` + sel.String() +
-		`<button class="btn" type="submit">` + web.Svg("qr", 15) + `生成配对码</button>` +
+		`<span class="dim">` + web.E(v.t.Pair.SendTo) + `</span>` + sel.String() +
+		`<button class="btn" type="submit">` + web.Svg("qr", 15) +
+		web.E(v.t.Pair.Issue) + `</button>` +
 		`</form>` +
 		`<div class="dim" style="font-size:12.5px;margin-top:8px">` +
-		`填已有成员的名字就是给他加一台设备；填一个没有的名字会顺手建一个新成员。</div></div>`
-	b.WriteString(web.Card("给谁", "", form))
+		web.E(v.t.Pair.Hint) + `</div></div>`
+	b.WriteString(web.Card(v.t.Pair.CardWho, "", form))
 
 	if code != nil {
 		qr, err := web.QRSVG(code.DeepLink, 240)
 		if err != nil {
-			qr = `<div class="dim">二维码生成失败</div>`
+			qr = `<div class="dim">` + web.E(v.t.Pair.QRFail) + `</div>`
 		}
 		owner := s.admin().MemberName(code.UserID)
 		body := `<div class="card-b" style="display:grid;grid-template-columns:280px 1fr;gap:24px;align-items:start">` +
@@ -105,15 +109,19 @@ func (s *Server) renderAdminPair(c *gin.Context, code *service.PairCode, errMsg 
 			`<div class="code" style="margin-top:10px">` + web.E(code.Display) + `</div>` +
 			`<div class="host">` + web.E(s.ExternalURL) + `</div></div>` +
 			`<div><ol class="steps">` +
-			`<li><b>1</b><div>在那台设备上装好 Knockbox 并打开</div></li>` +
-			`<li><b>2</b><div>点「添加服务器」，扫左边这个码</div></li>` +
-			`<li><b>3</b><div>扫完这台设备就属于 <b>` + web.E(owner) + `</b> 了，和他的其它设备收同样的消息</div></li>` +
+			`<li><b>1</b><div>` + web.E(v.t.Pair.Step1) + `</div></li>` +
+			`<li><b>2</b><div>` + web.E(v.t.Pair.Step2) + `</div></li>` +
+			// Step3 的语料自带 <b>，名字仍然要转义——它是用户起的。
+			`<li><b>3</b><div>` + fmt.Sprintf(v.t.Pair.Step3, web.E(owner)) + `</div></li>` +
 			`</ol><div class="note" style="margin-top:14px">` + web.Svg("alert", 14) +
-			`<p>只能用一次、10 分钟内有效。码里只有配对码，没有长期凭证——截图外泄也换不来什么。</p></div></div></div>`
-		b.WriteString(web.Card("扫这个码", "", body))
+			// 有效期跟着 server.pair_ttl 走，不写死——配置改了而文案不改，
+			// 这一句就开始骗人。
+			`<p>` + web.E(fmt.Sprintf(v.t.Pair.Note, int(s.PairTTL.Minutes()))) +
+			`</p></div></div></div>`
+		b.WriteString(web.Card(v.t.Pair.CardScan, "", body))
 	}
 
-	s.shell(c, "pair", []web.Crumb{web.C("配对设备")}, b.String())
+	s.shell(c, "pair", []web.Crumb{web.C(v.t.Nav.Pair)}, b.String())
 }
 
 var _ = http.StatusOK

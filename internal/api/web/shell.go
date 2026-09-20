@@ -34,7 +34,27 @@ func Svg(name string, size int) string {
 // E 转义。所有进模板的用户数据都要过它——消息标题、频道名这些都是外部输入。
 func E(s string) string { return html.EscapeString(s) }
 
-type navItem struct{ Key, Href, Icon, Label string }
+// JSQuote 把一句话放进 onsubmit="return confirm('…')" 里。
+//
+// 要过两层：先是 JS 的单引号字符串，再是 HTML 属性。英文里一个撇号
+// （Apple's）就能把脚本截断，所以这不是防外部输入，是文案本身的需要。
+func JSQuote(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`'`, `\'`,
+		"\n", `\n`,
+		"\r", "",
+		`<`, `\x3c`, // 免得文案里的 </script> 提前关掉标签
+	)
+	return html.EscapeString(r.Replace(s))
+}
+
+type navItem struct {
+	Key, Href, Icon string
+	// Label 从语料里取这一项的名字。存函数而不是字符串，是因为这张表是包级
+	// 变量，初始化时还不知道这次请求用哪种语言。
+	Label func(AdminNav) string
+}
 
 // Crumb 面包屑一节。Href 为空表示不可点。
 type Crumb struct{ Text, Href string }
@@ -54,15 +74,18 @@ func C(text string, href ...string) Crumb {
 // 「消息」仍然留一个顶层入口——它是跨频道的全局检索，
 // 和「某个频道下的消息」是两种不同的用途，不该只能从钻取路径到达。
 var navItems = []navItem{
-	{"dash", "/admin", "dash", "概览"},
-	{"users", "/admin/users", "users", "成员"},
-	{"messages", "/admin/messages", "msg", "搜索消息"},
-	{"pair", "/admin/pair", "qr", "配对设备"},
-	{"settings", "/admin/settings", "gear", "设置"},
+	{"dash", "/admin", "dash", func(n AdminNav) string { return n.Dash }},
+	{"users", "/admin/users", "users", func(n AdminNav) string { return n.Users }},
+	{"messages", "/admin/messages", "msg", func(n AdminNav) string { return n.Messages }},
+	{"pair", "/admin/pair", "qr", func(n AdminNav) string { return n.Pair }},
+	{"settings", "/admin/settings", "gear", func(n AdminNav) string { return n.Settings }},
 }
 
 // Shell 页面外壳：侧栏 + 顶栏 + 内容。
 type Shell struct {
+	Lang Lang
+	// Path 当前地址，语言开关切换后要跳回这里。
+	Path       string
 	Nav        string // 当前高亮的导航项
 	Crumbs     []Crumb
 	ServerName string
@@ -83,13 +106,14 @@ func (s Shell) titleText() string {
 }
 
 func (s Shell) Render() string {
+	t := T(s.Lang).Admin
 	var nav strings.Builder
 	for _, it := range navItems {
 		on := ""
 		if it.Key == s.Nav {
 			on = " on"
 		}
-		fmt.Fprintf(&nav, `<a class="item%s" href="%s">%s%s</a>`, on, it.Href, Svg(it.Icon, 16), it.Label)
+		fmt.Fprintf(&nav, `<a class="item%s" href="%s">%s%s</a>`, on, it.Href, Svg(it.Icon, 16), E(it.Label(t.Nav)))
 	}
 
 	// 面包屑除了最后一项都可以点回去——钻进三层之后没有返回路径是很烦的
@@ -107,14 +131,15 @@ func (s Shell) Render() string {
 	}
 
 	dot := "var(--success)"
-	state := "运行中"
+	state := t.Nav.Online
 	if !s.Online {
-		dot, state = "var(--danger)", "异常"
+		dot, state = "var(--danger)", t.Nav.Offline
 	}
 
-	return fmt.Sprintf(`<!doctype html><html lang="zh-CN"><head>
+	return fmt.Sprintf(`<!doctype html><html lang="%s"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>%s · Knockbox</title><style>%s</style></head>
+<meta name="robots" content="noindex,nofollow">
+<title>%s · Knockbox</title>`+IconLinks+`<style>%s%s</style></head>
 <body><div class="app fixed">
   <aside class="sidebar">
     <div class="brand"><div class="brand-mark">%s</div>
@@ -124,13 +149,15 @@ func (s Shell) Render() string {
   </aside>
   <main class="main">
     <div class="topbar"><div class="crumb">%s</div><div class="spacer"></div>
-      <a class="btn ghost sm" href="/logout">%s退出登录</a></div>
+      %s<a class="btn ghost sm" href="/logout">%s%s</a></div>
     <div class="content %s">%s</div>
   </main>
 </div></body></html>`,
-		E(s.titleText()), Style, Mark, E(s.ServerName),
-		nav.String(), dot, state, E(s.Version),
-		strings.Join(crumbs, Svg("chev", 13)), Svg("logout", 15), contentClass(s.Flat), s.Body)
+		s.Lang.Attr(), E(s.titleText()), Style, AdminLangCSS, Mark, E(s.ServerName),
+		nav.String(), dot, E(state), E(s.Version),
+		strings.Join(crumbs, Svg("chev", 13)),
+		AdminLangSwitch(s.Lang, s.Path), Svg("logout", 15), E(t.Nav.Logout),
+		contentClass(s.Flat), s.Body)
 }
 
 // Card 一张卡片。title 为空时不画头部。

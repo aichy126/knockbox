@@ -116,6 +116,14 @@ func Router(r *gin.Engine, s *Server) {
 	if s.joinLimit == nil {
 		s.joinLimit = middleware.NewRateLimitFunc(s.Settings.RegisterPerHour, time.Hour)
 	}
+	// 语言开关。不要求登录：cookie 只影响渲染语言，换一门语言看不到任何多余的东西，
+	// 而登录页自己也要能切。
+	r.GET("/lang", s.setLang)
+	// 图标。/favicon.ico 是浏览器自己会去要的那一条，即便没有哪一页引用它——
+	// 不给的话每开一页就多一次 404。
+	r.GET("/favicon.ico", s.asset("favicon.png"))
+	r.GET("/favicon.png", s.asset("favicon.png"))
+	r.GET("/apple-touch-icon.png", s.asset("apple-touch-icon.png"))
 	r.GET("/login", s.loginPage)
 	r.GET("/logout", s.logout)
 	admin := r.Group("", middleware.AdminAuth(verify, uierr.AdminSessionExpired, s.userText))

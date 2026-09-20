@@ -22,10 +22,11 @@ import (
 // 按归属关系组织而不是按表：设备和频道都属于成员，
 // 把它们做成三个平级列表，等于让用户自己在脑子里做关联查询。
 func (s *Server) adminUser(c *gin.Context) {
+	v := newAdminView(c)
 	id, _ := strconv.ParseInt(c.Param("id"), 10, 64)
 	member, err := s.admin().Member(id)
 	if err != nil {
-		s.shell(c, "users", []web.Crumb{web.C("成员", "/admin/users"), web.C("未找到")},
+		s.shell(c, "users", []web.Crumb{web.C(v.t.Nav.Users, "/admin/users"), web.C(v.t.Common.NotFound)},
 			web.Card("", "", web.Empty(s.userText(c, uierr.MemberNotFound))))
 		return
 	}
@@ -33,13 +34,13 @@ func (s *Server) adminUser(c *gin.Context) {
 	usage := s.quota().Usage(u.Id)
 
 	var b strings.Builder
-	role := `<span class="badge muted">收件人</span>`
+	role := `<span class="badge muted">` + web.E(v.t.Common.RoleMember) + `</span>`
 	if u.Role == models.RoleAdmin {
-		role = `<span class="badge info">管理员</span>`
+		role = `<span class="badge info">` + web.E(v.t.Common.RoleAdmin) + `</span>`
 	}
 	b.WriteString(`<div class="ph"><div><h1>` + web.E(u.Name) + `</h1><div class="sub">` +
-		`创建于 ` + time.Unix(u.Ctime, 0).Format("2006-01-02") + `</div></div>` +
-		`<div class="spacer"></div>` + role + unlimitedToggle(fmt.Sprint(u.Id), u.Unlimited != 0) + `</div>`)
+		web.E(fmt.Sprintf(v.t.Member.CreatedOn, time.Unix(u.Ctime, 0).Format("2006-01-02"))) + `</div></div>` +
+		`<div class="spacer"></div>` + role + unlimitedToggle(v, fmt.Sprint(u.Id), u.Unlimited != 0) + `</div>`)
 
 	// 用量
 	lim := func(n, max int) string {
@@ -49,63 +50,69 @@ func (s *Server) adminUser(c *gin.Context) {
 		return fmt.Sprintf("%d / %d", n, max)
 	}
 	b.WriteString(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px">`)
-	b.WriteString(web.Stat("频道", lim(usage.Channels, usage.ChannelLimit), "muted", "当前"))
-	b.WriteString(web.Stat("24 小时消息", lim(usage.Today, usage.DailyLimit), "muted", "滚动窗口"))
-	b.WriteString(web.Stat("消息总数", fmt.Sprint(usage.Messages), "muted", "未删除的"))
-	b.WriteString(web.Stat("附件占用", bytesize.Decimal(usage.FileBytes), "muted", "派生图，原图不留"))
+	b.WriteString(web.Stat(v.t.Member.StatChannels, lim(usage.Channels, usage.ChannelLimit), "muted", v.t.Member.StatNow))
+	b.WriteString(web.Stat(v.t.Member.StatMsgs24h, lim(usage.Today, usage.DailyLimit), "muted", v.t.Member.StatRolling))
+	b.WriteString(web.Stat(v.t.Member.StatTotal, fmt.Sprint(usage.Messages), "muted", v.t.Member.StatKept))
+	b.WriteString(web.Stat(v.t.Member.StatFiles, bytesize.Decimal(usage.FileBytes), "muted", v.t.Member.StatDerived))
 	b.WriteString(`</div>`)
 
 	b.WriteString(s.actionError(c, "dev", uierr.DeviceNotFound))
-	b.WriteString(web.Card("频道", "", s.channelTable(u.Id)))
-	b.WriteString(web.Card("设备", `<a class="btn ghost sm" href="/admin/pair">`+web.Svg("qr", 14)+`配对新设备</a>`,
-		s.deviceTable(u.Id)))
+	b.WriteString(web.Card(v.t.Member.CardChannels, "", s.channelTable(v, u.Id)))
+	b.WriteString(web.Card(v.t.Member.CardDevices,
+		`<a class="btn ghost sm" href="/admin/pair">`+web.Svg("qr", 14)+web.E(v.t.Member.PairNew)+`</a>`,
+		s.deviceTable(v, u.Id)))
 
-	s.shell(c, "users", []web.Crumb{web.C("成员", "/admin/users"), web.C(u.Name)}, b.String())
+	s.shell(c, "users", []web.Crumb{web.C(v.t.Nav.Users, "/admin/users"), web.C(u.Name)}, b.String())
 }
 
-func (s *Server) channelTable(uid int64) string {
+func (s *Server) channelTable(v adminView, uid int64) string {
 	rows, err := s.admin().MemberChannels(uid)
 	if err != nil {
 		log.Error("admin: member channels failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return web.Empty("还没有频道。频道在 app 里创建。")
+		return web.Empty(v.t.Member.NoChannels)
 	}
 	now := time.Now().Unix()
 	var t strings.Builder
-	t.WriteString(`<table><thead><tr><th style="padding-left:16px">名字</th><th>消息</th><th>最近</th>` +
-		`<th>铃声</th><th>打扰级别</th><th>状态</th></tr></thead><tbody>`)
+	fmt.Fprintf(&t, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th><th>%s</th>`+
+		`<th>%s</th><th>%s</th><th>%s</th></tr></thead><tbody>`,
+		web.E(v.t.Common.Name), web.E(v.t.Common.Messages), web.E(v.t.Member.ColLast),
+		web.E(v.t.Member.ColSound), web.E(v.t.Member.ColLevel), web.E(v.t.Common.Status))
 	for _, r := range rows {
-		state := `<span class="badge ok"><i></i>正常</span>`
+		state := `<span class="badge ok"><i></i>` + web.E(v.t.Member.StateOK) + `</span>`
 		if r.Muted != 0 {
-			state = `<span class="badge muted"><i></i>一直静音</span>`
+			state = `<span class="badge muted"><i></i>` + web.E(v.t.Mute.Always) + `</span>`
 		} else if r.MuteUntil > now {
-			state = `<span class="badge warn"><i></i>静音至 ` + time.Unix(r.MuteUntil, 0).Format("15:04") + `</span>`
+			state = `<span class="badge warn"><i></i>` +
+				web.E(fmt.Sprintf(v.t.Mute.Until, time.Unix(r.MuteUntil, 0).Format("15:04"))) + `</span>`
 		}
 		fmt.Fprintf(&t, `<tr><td style="padding-left:16px;font-weight:500">`+
 			`<a href="/admin/channels/%s">%s</a></td>`+
 			`<td class="num">%d</td><td class="dim num">%s</td><td class="dim">%s</td>`+
 			`<td class="dim">%s</td><td>%s</td></tr>`,
-			web.E(r.Id), web.E(channelName(r.Meta, r.Id)), r.Messages, ago(r.LastMsgAt),
+			web.E(r.Id), web.E(channelName(r.Meta, r.Id)), r.Messages, v.ago(r.LastMsgAt),
 			web.E(r.Sound), web.E(r.Level), state)
 	}
 	t.WriteString(`</tbody></table>`)
 	return t.String()
 }
 
-func (s *Server) deviceTable(uid int64) string {
+func (s *Server) deviceTable(v adminView, uid int64) string {
 	rows, err := s.admin().MemberDevices(uid)
 	if err != nil {
 		log.Error("admin: member devices failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return web.Empty("还没有设备。点右上角配对一台。")
+		return web.Empty(v.t.Member.NoDevices)
 	}
 	var t strings.Builder
-	t.WriteString(`<table><thead><tr><th style="padding-left:16px">设备</th><th>系统</th><th>app</th>` +
-		`<th>APNs</th><th>同步到</th><th>最后活跃</th><th></th></tr></thead><tbody>`)
+	fmt.Fprintf(&t, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th><th>%s</th>`+
+		`<th>APNs</th><th>%s</th><th>%s</th><th></th></tr></thead><tbody>`,
+		web.E(v.t.Common.Device), web.E(v.t.Member.ColOS), web.E(v.t.Member.ColApp),
+		web.E(v.t.Member.ColSynced), web.E(v.t.Member.ColSeen))
 	for _, r := range rows {
-		push := `<span class="badge err"><i></i>收不到推送</span>`
+		push := `<span class="badge err"><i></i>` + web.E(v.t.Member.NoPush) + `</span>`
 		if r.CanPush() {
 			kind := "ok"
 			if r.APNsEnv == "sandbox" {
@@ -119,10 +126,11 @@ func (s *Server) deviceTable(uid int64) string {
 			`<td class="dim num">%d</td><td class="dim">%s</td>`+
 			`<td style="text-align:right;padding-right:16px">`+
 			`<form class="inline" method="post" action="/admin/devices/%d/delete" `+
-			`onsubmit="return confirm('注销这台设备？它将不再收到推送，需要重新配对。')">`+
-			`<button class="btn ghost sm" type="submit">注销</button></form></td></tr>`,
+			`onsubmit="return confirm('%s')">`+
+			`<button class="btn ghost sm" type="submit">%s</button></form></td></tr>`,
 			web.E(r.Name), web.E(r.Model), web.E(r.Platform), web.E(r.OSVersion),
-			web.E(r.AppVersion), push, r.SyncRev, ago(r.LastSeenAt), r.Id)
+			web.E(r.AppVersion), push, r.SyncRev, v.ago(r.LastSeenAt),
+			r.Id, web.JSQuote(v.t.Member.RevokeAsk), web.E(v.t.Member.Revoke))
 	}
 	t.WriteString(`</tbody></table>`)
 	return t.String()
@@ -134,9 +142,10 @@ func (s *Server) deviceTable(uid int64) string {
 // 后台若停在「列表 → 点进去看」，同一份内容就有了两套操作方式。
 // 这里按时间正序排列、自动滚到底，与 app 保持一致。
 func (s *Server) adminChannel(c *gin.Context) {
+	v := newAdminView(c)
 	channel, ownerUser, err := s.admin().Channel(c.Param("id"))
 	if err != nil {
-		s.shell(c, "users", []web.Crumb{web.C("成员", "/admin/users"), web.C("未找到")},
+		s.shell(c, "users", []web.Crumb{web.C(v.t.Nav.Users, "/admin/users"), web.C(v.t.Common.NotFound)},
 			web.Card("", "", web.Empty(s.userText(c, uierr.ChannelNotFound))))
 		return
 	}
@@ -146,52 +155,56 @@ func (s *Server) adminChannel(c *gin.Context) {
 	var b strings.Builder
 	// 操作都在右上角这一行：清空是频道级动作，和「发送说明」同级，
 	// 不该被埋在页面最底下一个叫「危险操作」的卡片里——那个位置反而没人看见。
-	b.WriteString(`<div class="ph"><div><h1>` + web.E(name) + `</h1><div class="sub">属于 ` +
-		web.E(owner.Name) + ` · ` + web.E(ch.Sound) + ` · ` + web.E(ch.Level) + muteSuffix(&ch) +
+	b.WriteString(`<div class="ph"><div><h1>` + web.E(name) + `</h1><div class="sub">` +
+		web.E(fmt.Sprintf(v.t.Channel.BelongsTo, owner.Name)) +
+		` · ` + web.E(ch.Sound) + ` · ` + web.E(ch.Level) + muteSuffix(v, &ch) +
 		`</div></div><div class="spacer"></div>` +
-		`<a class="btn outline" href="/s/` + web.E(ch.Token) + `">` + web.Svg("zap", 15) + `发送说明</a>` +
+		`<a class="btn outline" href="/s/` + web.E(ch.Token) + `">` + web.Svg("zap", 15) +
+		web.E(v.t.Channel.SendGuide) + `</a>` +
 		// 频道属性平时就是一颗按钮，点开才弹出来——它不常用，不该一直占着一整块版面。
 		// 用 <details> 而不是 JS：没有交互状态要管，页面刷新也不会错乱。
 		`<details class="pop"><summary class="btn outline">` + web.Svg("dash", 15) +
-		`频道属性</summary><div class="pop-body">` + s.channelProps(&ch) + `</div></details>` +
+		web.E(v.t.Channel.Props) + `</summary><div class="pop-body">` +
+		s.channelProps(v, &ch) + `</div></details>` +
 		`<form class="inline" method="post" action="/admin/channels/` + web.E(ch.Id) + `/purge" ` +
-		`onsubmit="return confirm('清空这个频道的全部消息？物理删除，无法恢复。')">` +
+		`onsubmit="return confirm('` + web.JSQuote(v.t.Channel.PurgeAsk) + `')">` +
 		`<button class="btn outline" type="submit" style="color:var(--danger)">` +
-		web.Svg("trash", 15) + `清空消息</button></form></div>`)
+		web.Svg("trash", 15) + web.E(v.t.Channel.Purge) + `</button></form></div>`)
 
-	b.WriteString(s.channelStream(&ch))
+	b.WriteString(s.channelStream(v, &ch))
 	s.shellFlat(c, "users", []web.Crumb{
-		web.C("成员", "/admin/users"),
+		web.C(v.t.Nav.Users, "/admin/users"),
 		web.C(owner.Name, "/admin/users/"+fmt.Sprint(owner.Id)),
 		web.C(name),
 	}, b.String(), true)
 }
 
-func muteSuffix(ch *models.Channel) string {
+func muteSuffix(v adminView, ch *models.Channel) string {
 	now := time.Now().Unix()
 	if ch.Muted != 0 {
-		return ` · <span style="color:var(--warning)">一直静音</span>`
+		return ` · <span style="color:var(--warning)">` + web.E(v.t.Mute.Always) + `</span>`
 	}
 	if ch.MuteUntil > now {
-		return ` · <span style="color:var(--warning)">静音至 ` +
-			time.Unix(ch.MuteUntil, 0).Format("01-02 15:04") + `</span>`
+		return ` · <span style="color:var(--warning)">` +
+			web.E(fmt.Sprintf(v.t.Mute.Until, time.Unix(ch.MuteUntil, 0).Format("01-02 15:04"))) +
+			`</span>`
 	}
 	return ""
 }
 
-func (s *Server) channelProps(ch *models.Channel) string {
+func (s *Server) channelProps(v adminView, ch *models.Channel) string {
 	kv := func(k, v string) string {
 		return fmt.Sprintf(`<div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--border)">`+
 			`<div class="dim" style="width:120px;flex-shrink:0">%s</div><div class="wrap-any">%s</div></div>`,
 			web.E(k), v)
 	}
-	return kv("频道 id", `<span class="mono">`+web.E(ch.Id)+`</span>`) +
-		kv("发送 token", `<span class="mono">`+web.E(ch.Token)+`</span>`) +
-		kv("最后使用", ago(ch.LastUsedAt)+`　<span class="dim mono">`+web.E(ch.LastUsedIP)+`</span>`)
+	return kv(v.t.Channel.PropId, `<span class="mono">`+web.E(ch.Id)+`</span>`) +
+		kv(v.t.Channel.PropToken, `<span class="mono">`+web.E(ch.Token)+`</span>`) +
+		kv(v.t.Channel.PropUsed, v.ago(ch.LastUsedAt)+`　<span class="dim mono">`+web.E(ch.LastUsedIP)+`</span>`)
 }
 
 // channelStream 消息流。正序排、自动滚到底，和 app 里一样。
-func (s *Server) channelStream(ch *models.Channel) string {
+func (s *Server) channelStream(v adminView, ch *models.Channel) string {
 	const limit = 40
 	rows, err := s.admin().Messages(service.MessageFilter{
 		ChannelId: ch.Id, Limit: limit, WithBody: true,
@@ -200,7 +213,7 @@ func (s *Server) channelStream(ch *models.Channel) string {
 		log.Error("admin: channel stream failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return web.Card("", "", web.Empty("这个频道还没有消息。"))
+		return web.Card("", "", web.Empty(v.t.Channel.Empty))
 	}
 	// 查的时候倒序（要最近的 N 条），显示的时候正序（和 app 一致）
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
@@ -210,15 +223,15 @@ func (s *Server) channelStream(ch *models.Channel) string {
 	var b strings.Builder
 	b.WriteString(`<div class="stream" id="stream">`)
 	b.WriteString(`<div style="text-align:center"><a class="btn ghost sm" href="/admin/messages?channel=` +
-		web.E(ch.Id) + `">看更早的 / 搜索</a></div>`)
+		web.E(ch.Id) + `">` + web.E(v.t.Channel.OlderSearch) + `</a></div>`)
 	lastDay := ""
 	for _, r := range rows {
 		if d := time.Unix(r.Ctime, 0).Format("2006-01-02"); d != lastDay {
 			lastDay = d
 			b.WriteString(`<div style="text-align:center;padding:6px 0">` +
-				`<span class="badge muted">` + web.E(dayLabel(r.Ctime)) + `</span></div>`)
+				`<span class="badge muted">` + web.E(dayLabel(v, r.Ctime)) + `</span></div>`)
 		}
-		b.WriteString(s.messageBubble(r))
+		b.WriteString(s.messageBubble(v, r))
 	}
 	b.WriteString(`</div>`)
 	// 落地就停在最新那条上，和 app 的 defaultScrollAnchor(.bottom) 一个意思。
@@ -228,21 +241,21 @@ func (s *Server) channelStream(ch *models.Channel) string {
 	return b.String()
 }
 
-func dayLabel(ts int64) string {
+func dayLabel(v adminView, ts int64) string {
 	t := time.Unix(ts, 0)
 	y, m, d := time.Now().Date()
 	today := time.Date(y, m, d, 0, 0, 0, 0, time.Local)
 	switch {
 	case !t.Before(today):
-		return "今天"
+		return v.t.Time.Today
 	case !t.Before(today.AddDate(0, 0, -1)):
-		return "昨天"
+		return v.t.Time.Yesterday
 	}
-	return t.Format("1 月 2 日")
+	return t.Format(v.t.Time.DateFormat)
 }
 
 // messageBubble 一条消息，展开显示内容。
-func (s *Server) messageBubble(r service.MessageRow) string {
+func (s *Server) messageBubble(v adminView, r service.MessageRow) string {
 	title := firstNonEmpty(r.Title, r.Summary)
 	var body strings.Builder
 	switch r.Type {
@@ -273,11 +286,11 @@ func (s *Server) messageBubble(r service.MessageRow) string {
 	// **只读，一律置灰不可点**：后台是服务器主人查看用的，不是他替用户作答的地方。
 	// 这里能点的话，一次误触就会把一个答案送进发送方的回调，
 	// 而那一端可能真的去开一扇窗——它分不出这是谁点的。
-	body.WriteString(replyReadonly(r))
+	body.WriteString(replyReadonly(v, r))
 
 	unread := ""
 	if r.ReadAt == 0 {
-		unread = `<span class="badge info"><i></i>未读</span>`
+		unread = `<span class="badge info"><i></i>` + web.E(v.t.Common.Unread) + `</span>`
 	}
 	return fmt.Sprintf(`<div class="card"><div class="card-b" style="padding:14px 16px">
 <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
@@ -285,10 +298,11 @@ func (s *Server) messageBubble(r service.MessageRow) string {
   <span class="badge muted">%s</span>%s%s
   <span class="dim num" style="font-size:12px">%s</span>
 </div>%s
-<div style="margin-top:8px"><a class="btn ghost sm" href="/admin/messages/%s">投递记录</a></div>
+<div style="margin-top:8px"><a class="btn ghost sm" href="/admin/messages/%s">%s</a></div>
 </div></div>`,
-		web.E(title), web.E(r.Type), unread, pushBadge(r.PushOK, r.PushTotal),
-		time.Unix(r.Ctime, 0).Format("15:04"), body.String(), web.E(r.UID))
+		web.E(title), web.E(r.Type), unread, pushBadge(v, r.PushOK, r.PushTotal),
+		time.Unix(r.Ctime, 0).Format("15:04"), body.String(), web.E(r.UID),
+		web.E(v.t.Channel.DeliveryLog))
 }
 
 // replyReadonly 消息列表里的回复区，只读。
@@ -304,7 +318,7 @@ func (s *Server) messageBubble(r service.MessageRow) string {
 // **一律不可点、不发任何请求。** 用 disabled 加 pointer-events:none 两道，
 // 而且整块没有 form、没有 JS。后台是服务器主人查看用的，不是他替用户作答的地方：
 // 能点的话一次误触就会把一个答案送进发送方的回调，而那一端分不出这是谁点的。
-func replyReadonly(r service.MessageRow) string {
+func replyReadonly(v adminView, r service.MessageRow) string {
 	if r.ReplyWebhook == "" {
 		return ""
 	}
@@ -350,13 +364,13 @@ func replyReadonly(r service.MessageRow) string {
 	case models.ReplyNumber:
 		b.WriteString(sliderRow(e.Reply.Min, e.Reply.Max, e.Reply.Step, e.Reply.Unit, raw, replied))
 	case models.ReplyText:
-		b.WriteString(textRow(raw, replied))
+		b.WriteString(textRow(v, raw, replied))
 	default:
-		b.WriteString(`<div class="dim" style="font-size:12px">这个版本的后台不认识的回复形态：` +
-			web.E(e.Reply.Type) + `</div>`)
+		b.WriteString(`<div class="dim" style="font-size:12px">` +
+			web.E(v.t.Channel.UnknownReply) + web.E(e.Reply.Type) + `</div>`)
 	}
 
-	b.WriteString(replyStatusLine(replied, repliedAt, until))
+	b.WriteString(replyStatusLine(v, replied, repliedAt, until))
 	b.WriteString(`</div>`)
 	return b.String()
 }
@@ -447,34 +461,35 @@ func sliderRow(min, max, step *float64, unit, raw string, replied bool) string {
 }
 
 // textRow 文本：输入框里是回复原文；没回复就是占位提示。
-func textRow(raw string, replied bool) string {
+func textRow(v adminView, raw string, replied bool) string {
 	if replied {
 		return `<input type="text" disabled value="` + web.E(raw) + `" ` +
 			`style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);` +
 			`background:var(--card);color:var(--fg);font-size:14px">`
 	}
-	return `<input type="text" disabled placeholder="等待文字回复" ` +
+	return `<input type="text" disabled placeholder="` + web.E(v.t.Channel.WaitingText) + `" ` +
 		`style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);` +
 		`background:var(--muted);color:var(--muted-fg);font-size:14px">`
 }
 
 // replyStatusLine 控件下面那一行状态：回了什么、什么时候，或者还在等、等到几点。
-func replyStatusLine(replied bool, repliedAt, until int64) string {
+func replyStatusLine(v adminView, replied bool, repliedAt, until int64) string {
 	if replied {
 		return `<div style="display:flex;align-items:center;gap:8px;margin-top:8px">` +
-			`<span class="badge ok"><i></i>已回复</span>` +
+			`<span class="badge ok"><i></i>` + web.E(v.t.Channel.Replied) + `</span>` +
 			`<span class="dim" style="font-size:12px">` +
 			web.E(time.Unix(repliedAt, 0).Format("2006-01-02 15:04:05")) + `</span></div>`
 	}
 	if until > 0 && time.Now().Unix() > until {
 		return `<div style="margin-top:8px;font-size:12px;color:var(--warning)">` +
-			`时限已过（` + web.E(time.Unix(until, 0).Format("15:04:05")) + `），没有回复</div>`
+			web.E(fmt.Sprintf(v.t.Channel.Expired, time.Unix(until, 0).Format("15:04:05"))) + `</div>`
 	}
 	if until > 0 {
-		return `<div class="dim" style="margin-top:8px;font-size:12px">等待回复 · 截止 ` +
-			web.E(time.Unix(until, 0).Format("15:04:05")) + `</div>`
+		return `<div class="dim" style="margin-top:8px;font-size:12px">` +
+			web.E(fmt.Sprintf(v.t.Channel.WaitingTill, time.Unix(until, 0).Format("15:04:05"))) + `</div>`
 	}
-	return `<div class="dim" style="margin-top:8px;font-size:12px">等待回复 · 没有设时限</div>`
+	return `<div class="dim" style="margin-top:8px;font-size:12px">` +
+		web.E(v.t.Channel.WaitingOpen) + `</div>`
 }
 
 // trimNum 去掉没意义的小数尾巴：24.0 显示成 24，24.5 还是 24.5。

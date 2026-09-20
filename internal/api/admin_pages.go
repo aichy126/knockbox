@@ -20,6 +20,7 @@ import (
 // ── 消息 ──────────────────────────────────────────────
 
 func (s *Server) adminMessages(c *gin.Context) {
+	v := newAdminView(c)
 	q := strings.TrimSpace(c.Query("q"))
 	userFilter := c.Query("user")
 	chFilter := c.Query("channel")
@@ -46,22 +47,24 @@ func (s *Server) adminMessages(c *gin.Context) {
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div class="ph"><div><h1>搜索消息</h1>` +
-		`<div class="sub">这台服务器上的全部消息</div></div></div>`)
-	b.WriteString(s.searchForm(q, userFilter, chFilter))
+	b.WriteString(`<div class="ph"><div><h1>` + web.E(v.t.Nav.Messages) + `</h1>` +
+		`<div class="sub">` + web.E(v.t.Msgs.Sub) + `</div></div></div>`)
+	b.WriteString(s.searchForm(v, q, userFilter, chFilter))
 
 	if len(rows) == 0 {
-		b.WriteString(web.Card("", "", web.Empty(emptyHint(q, chFilter))))
+		b.WriteString(web.Card("", "", web.Empty(emptyHint(v, q, chFilter))))
 	} else {
 		var t strings.Builder
-		t.WriteString(`<table><thead><tr><th style="padding-left:16px">时间</th><th>成员</th><th>频道</th>` +
-			`<th>类型</th><th>标题</th><th>推送</th><th></th></tr></thead><tbody>`)
+		fmt.Fprintf(&t, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th><th>%s</th>`+
+			`<th>%s</th><th>%s</th><th>%s</th><th></th></tr></thead><tbody>`,
+			web.E(v.t.Common.Time), web.E(v.t.Common.Member), web.E(v.t.Common.Channel),
+			web.E(v.t.Common.Type), web.E(v.t.Common.Title), web.E(v.t.Common.Push))
 		var last int64
 		for _, r := range rows {
 			last = r.Id
 			readMark := ""
 			if r.ReadAt == 0 {
-				readMark = `<span class="badge info"><i></i>未读</span>`
+				readMark = `<span class="badge info"><i></i>` + web.E(v.t.Common.Unread) + `</span>`
 			}
 			fmt.Fprintf(&t, `<tr><td style="padding-left:16px" class="dim num">%s</td>`+
 				`<td class="dim"><a href="/admin/users/%d">%s</a></td>`+
@@ -72,27 +75,28 @@ func (s *Server) adminMessages(c *gin.Context) {
 				clock(r.Ctime), r.UserId, web.E(r.Owner),
 				web.E(r.ChannelId), web.E(channelName(r.Meta, r.ChannelId)),
 				web.E(r.Type), web.E(r.UID), web.E(trunc(firstNonEmpty(r.Title, r.Summary), 42)),
-				pushBadge(r.PushOK, r.PushTotal), readMark)
+				pushBadge(v, r.PushOK, r.PushTotal), readMark)
 		}
 		t.WriteString(`</tbody></table>`)
 		if more {
 			fmt.Fprintf(&t, `<div class="pager"><a class="btn outline sm" `+
-				`href="?q=%s&user=%s&channel=%s&before=%d">更早的%s</a></div>`,
-				web.E(q), web.E(userFilter), web.E(chFilter), last, web.Svg("chev", 14))
+				`href="?q=%s&user=%s&channel=%s&before=%d">%s%s</a></div>`,
+				web.E(q), web.E(userFilter), web.E(chFilter), last,
+				web.E(v.t.Common.Older), web.Svg("chev", 14))
 		}
 		b.WriteString(web.Card("", "", t.String()))
 	}
-	s.shell(c, "messages", []web.Crumb{web.C("搜索消息")}, b.String())
+	s.shell(c, "messages", []web.Crumb{web.C(v.t.Nav.Messages)}, b.String())
 }
 
-func emptyHint(q, ch string) string {
+func emptyHint(v adminView, q, ch string) string {
 	if q != "" {
-		return "没有匹配的消息。换个词试试，搜索会同时看标题、摘要和正文。"
+		return v.t.Msgs.EmptyQuery
 	}
 	if ch != "" {
-		return "这个频道还没有消息。"
+		return v.t.Channel.Empty
 	}
-	return "还没有消息。往任意一个频道 curl 一条试试。"
+	return v.t.Dash.Empty
 }
 
 // userPicker 可搜索的成员选择器。
@@ -104,7 +108,7 @@ func emptyHint(q, ch string) string {
 // 值用「名字」而不是 id：用户输入的是名字，让他去记一个数字 id 是荒唐的。
 // 服务端按名字反查，查不到就当没筛选——**不能因为名字打错就返回空列表**，
 // 那样用户会以为「这个人没有消息」。
-func (s *Server) userPicker(name, current, placeholder string) string {
+func (s *Server) userPicker(v adminView, name, current, placeholder string) string {
 	rows, err := s.admin().MemberNames()
 	if err != nil {
 		log.Error("admin: member names failed", log.Any("error", err.Error()))
@@ -117,7 +121,8 @@ func (s *Server) userPicker(name, current, placeholder string) string {
 		fmt.Fprintf(&b, `<option value="%s">`, web.E(r.Name))
 	}
 	b.WriteString(`</datalist>`)
-	fmt.Fprintf(&b, `<span class="hint">%d 人</span></span>`, len(rows))
+	fmt.Fprintf(&b, `<span class="hint">%s</span></span>`,
+		web.E(web.Plural(len(rows), v.t.Common.PeopleOne, v.t.Common.PeopleCount)))
 	return b.String()
 }
 
@@ -126,7 +131,7 @@ func (s *Server) userPicker(name, current, placeholder string) string {
 // 频道全部渲染出来、按成员在前端过滤，而不是选完成员再往服务端跑一趟：
 // 一台服务器上的频道总数是几十量级，一次带出来远比一次往返便宜，
 // 而且切成员时列表立刻就变，不闪。
-func (s *Server) searchForm(q, userFilter, chFilter string) string {
+func (s *Server) searchForm(v adminView, q, userFilter, chFilter string) string {
 	chans, err := s.admin().AllChannels()
 	if err != nil {
 		log.Error("admin: channel list failed", log.Any("error", err.Error()))
@@ -142,11 +147,13 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 
 	var b strings.Builder
 	b.WriteString(`<form class="tools" method="get" id="mf">`)
-	fmt.Fprintf(&b, `<input name="q" placeholder="搜标题、正文" value="%s" style="min-width:220px">`, web.E(q))
+	fmt.Fprintf(&b, `<input name="q" placeholder="%s" value="%s" style="min-width:220px">`,
+		web.E(v.t.Msgs.SearchPh), web.E(q))
 
-	b.WriteString(s.userPicker("user", userFilter, "全部成员"))
+	b.WriteString(s.userPicker(v, "user", userFilter, v.t.Msgs.AllMembers))
 
-	b.WriteString(`<select name="channel" id="cSel"><option value="">全部频道</option>`)
+	b.WriteString(`<select name="channel" id="cSel"><option value="">` +
+		web.E(v.t.Msgs.AllChannels) + `</option>`)
 	for _, ch := range chans {
 		sel := ""
 		if ch.Id == chFilter {
@@ -158,9 +165,10 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 	}
 	b.WriteString(`</select>`)
 
-	b.WriteString(`<button class="btn" type="submit">搜索</button>`)
+	b.WriteString(`<button class="btn" type="submit">` + web.E(v.t.Common.Search) + `</button>`)
 	if q != "" || chFilter != "" || userFilter != "" {
-		b.WriteString(`<a class="btn ghost" href="/admin/messages">清空条件</a>`)
+		b.WriteString(`<a class="btn ghost" href="/admin/messages">` +
+			web.E(v.t.Common.Clear) + `</a>`)
 	}
 	b.WriteString(`</form>`)
 
@@ -191,9 +199,10 @@ func (s *Server) searchForm(q, userFilter, chFilter string) string {
 // adminMessageDetail 单条消息。管理员能看到正文——这是自持服务器的固有属性，
 // 页面上不需要特意声明，但也不遮掩。
 func (s *Server) adminMessageDetail(c *gin.Context) {
+	v := newAdminView(c)
 	msg, channel, err := s.admin().Message(c.Param("uid"))
 	if err != nil {
-		s.shell(c, "messages", []web.Crumb{web.C("消息"), web.C("未找到")},
+		s.shell(c, "messages", []web.Crumb{web.C(v.t.Msgs.Crumb), web.C(v.t.Common.NotFound)},
 			web.Card("", "", web.Empty(s.userText(c, uierr.MessageNotFound))))
 		return
 	}
@@ -212,47 +221,53 @@ func (s *Server) adminMessageDetail(c *gin.Context) {
 	if body == "" {
 		body = m.Summary
 	}
-	b.WriteString(web.Card("正文", "", `<div class="card-b"><pre class="body">`+web.E(body)+`</pre></div>`))
+	b.WriteString(web.Card(v.t.Msgs.CardBody, "", `<div class="card-b"><pre class="body">`+web.E(body)+`</pre></div>`))
 	if m.Extra != "" {
-		b.WriteString(web.Card("附加信息", "", `<div class="card-b"><pre class="body">`+web.E(m.Extra)+`</pre></div>`))
+		b.WriteString(web.Card(v.t.Msgs.CardExtra, "", `<div class="card-b"><pre class="body">`+web.E(m.Extra)+`</pre></div>`))
 	}
-	b.WriteString(web.Card("推送摘要（进 APNs payload 的就是它）", "",
+	b.WriteString(web.Card(v.t.Msgs.CardSummary, "",
 		`<div class="card-b"><pre class="body">`+web.E(m.Summary)+`</pre></div>`))
 	if m.Replyable() {
-		b.WriteString(web.Card("回复", "", s.replyPanel(&m)))
+		b.WriteString(web.Card(v.t.Msgs.CardReply, "", s.replyPanel(v, &m)))
 	}
-	b.WriteString(web.Card("投递记录", "", s.pushLogTable(m.Id)))
-	s.shell(c, "messages", []web.Crumb{web.C("搜索消息", "/admin/messages"), web.C(trunc(title, 24))}, b.String())
+	b.WriteString(web.Card(v.t.Channel.DeliveryLog, "", s.pushLogTable(v, m.Id)))
+	s.shell(c, "messages", []web.Crumb{
+		web.C(v.t.Nav.Messages, "/admin/messages"), web.C(trunc(title, 24)),
+	}, b.String())
 }
 
 // replyPanel 一条可回复消息的回复状态与回调投递结果。
 //
 // 这一屏是【回调失败时唯一的线索】：用户那边显示「已回复」，发送方什么都没收到，
 // 两边都不会自己发现这件事。没有这一屏，排查只能去翻日志。
-func (s *Server) replyPanel(m *models.Message) string {
+func (s *Server) replyPanel(v adminView, m *models.Message) string {
 	var b strings.Builder
 	b.WriteString(`<div class="card-b">`)
 
 	now := time.Now().Unix()
 	switch {
 	case m.Replied():
-		fmt.Fprintf(&b, `<p><span class="badge ok"><i></i>已回复</span> <b>%s</b> `+
+		fmt.Fprintf(&b, `<p><span class="badge ok"><i></i>%s</span> <b>%s</b> `+
 			`<span class="dim">%s</span></p>`,
-			web.E(m.Reply), web.E(time.Unix(m.RepliedAt, 0).Format("2006-01-02 15:04:05")))
+			web.E(v.t.Channel.Replied), web.E(m.Reply),
+			web.E(time.Unix(m.RepliedAt, 0).Format("2006-01-02 15:04:05")))
 	case m.ReplyExpired(now):
-		fmt.Fprintf(&b, `<p><span class="badge warn"><i></i>时限已过</span> `+
-			`<span class="dim">截止 %s，没有回复</span></p>`,
-			web.E(time.Unix(m.ReplyUntil, 0).Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&b, `<p><span class="badge warn"><i></i>%s</span> `+
+			`<span class="dim">%s</span></p>`,
+			web.E(v.t.Msgs.ReplyExpired),
+			web.E(fmt.Sprintf(v.t.Msgs.ReplyExpSub, time.Unix(m.ReplyUntil, 0).Format("2006-01-02 15:04:05"))))
 	case m.ReplyUntil > 0:
-		fmt.Fprintf(&b, `<p><span class="badge muted"><i></i>等待回复</span> `+
-			`<span class="dim">截止 %s</span></p>`,
-			web.E(time.Unix(m.ReplyUntil, 0).Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&b, `<p><span class="badge muted"><i></i>%s</span> `+
+			`<span class="dim">%s</span></p>`,
+			web.E(v.t.Msgs.ReplyWaiting),
+			web.E(fmt.Sprintf(v.t.Msgs.ReplyUntil, time.Unix(m.ReplyUntil, 0).Format("2006-01-02 15:04:05"))))
 	default:
-		b.WriteString(`<p><span class="badge muted"><i></i>等待回复</span> ` +
-			`<span class="dim">没有设时限</span></p>`)
+		b.WriteString(`<p><span class="badge muted"><i></i>` + web.E(v.t.Msgs.ReplyWaiting) +
+			`</span> <span class="dim">` + web.E(v.t.Msgs.ReplyNoLimit) + `</span></p>`)
 	}
 	// 回调地址只在后台显示。它不下发给任何客户端，但服务器的主人排障时要看得到。
-	fmt.Fprintf(&b, `<p class="dim">回调地址 <span class="mono">%s</span></p>`, web.E(m.ReplyWebhook))
+	fmt.Fprintf(&b, `<p class="dim">%s</p>`,
+		fmt.Sprintf(web.E(v.t.Msgs.ReplyWebhook), `<span class="mono">`+web.E(m.ReplyWebhook)+`</span>`))
 	b.WriteString(`</div>`)
 
 	rows, err := s.admin().ReplyHooks(m.Id)
@@ -262,70 +277,75 @@ func (s *Server) replyPanel(m *models.Message) string {
 	if len(rows) == 0 {
 		if m.Replied() {
 			// 回复和入队在同一个事务里，所以这种情况说明数据被写坏了。
-			b.WriteString(web.Empty("已经回复了，却没有回调记录。这不该发生，请检查服务端日志。"))
+			b.WriteString(web.Empty(v.t.Msgs.ReplyNoHooks))
 		}
 		return b.String()
 	}
-	b.WriteString(`<table><thead><tr><th style="padding-left:16px">回调</th><th>尝试</th>` +
-		`<th>HTTP</th><th>原因</th><th>时间</th></tr></thead><tbody>`)
+	fmt.Fprintf(&b, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th>`+
+		`<th>HTTP</th><th>%s</th><th>%s</th></tr></thead><tbody>`,
+		web.E(v.t.Msgs.ColHook), web.E(v.t.Common.Attempts),
+		web.E(v.t.Common.Reason), web.E(v.t.Common.Time))
 	for _, r := range rows {
-		code := "—"
+		code := v.t.Common.Dash
 		if r.StatusCode != 0 {
 			code = strconv.Itoa(r.StatusCode)
 		}
 		fmt.Fprintf(&b, `<tr><td style="padding-left:16px">%s</td><td class="num">%d</td>`+
 			`<td class="num dim">%s</td><td class="dim">%s</td><td class="dim num">%s</td></tr>`,
-			hookBadge(r.Status), r.Attempt,
+			hookBadge(v, r.Status), r.Attempt,
 			web.E(code), web.E(trunc(r.Error, 60)), clock(r.Utime))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
 }
 
-func hookBadge(status int) string {
+func hookBadge(v adminView, status int) string {
 	switch status {
 	case 1:
-		return `<span class="badge ok"><i></i>已送达</span>`
+		return `<span class="badge ok"><i></i>` + web.E(v.t.Common.Delivered) + `</span>`
 	case 2:
-		return `<span class="badge warn"><i></i>重试中</span>`
+		return `<span class="badge warn"><i></i>` + web.E(v.t.Common.Retrying) + `</span>`
 	case 3:
 		// 「已放弃」要显眼：发送方永远收不到这个答案了，而它自己不会知道。
-		return `<span class="badge err"><i></i>已放弃</span>`
+		return `<span class="badge err"><i></i>` + web.E(v.t.Common.GivenUp) + `</span>`
 	}
-	return `<span class="badge muted"><i></i>排队中</span>`
+	return `<span class="badge muted"><i></i>` + web.E(v.t.Common.Queued) + `</span>`
 }
 
-func (s *Server) pushLogTable(msgID int64) string {
+func (s *Server) pushLogTable(v adminView, msgID int64) string {
 	rows, err := s.admin().PushLog(msgID)
 	if err != nil {
 		log.Error("admin: push log failed", log.Any("error", err.Error()))
 	}
 	if len(rows) == 0 {
-		return web.Empty("没有投递记录。频道静音时消息照常存档，但不会排推送。")
+		return web.Empty(v.t.Msgs.NoPushLog)
 	}
 	var b strings.Builder
-	b.WriteString(`<table><thead><tr><th style="padding-left:16px">设备</th><th>环境</th>` +
-		`<th>状态</th><th>尝试</th><th>apns-id</th><th>时间</th></tr></thead><tbody>`)
+	fmt.Fprintf(&b, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th>`+
+		`<th>%s</th><th>%s</th><th>apns-id</th><th>%s</th></tr></thead><tbody>`,
+		web.E(v.t.Common.Device), web.E(v.t.Msgs.ColEnv), web.E(v.t.Common.Status),
+		web.E(v.t.Common.Attempts), web.E(v.t.Common.Time))
 	for _, r := range rows {
 		fmt.Fprintf(&b, `<tr><td style="padding-left:16px">%s</td><td class="dim">%s</td>`+
 			`<td>%s</td><td class="num">%d</td><td class="mono dim">%s</td><td class="dim num">%s</td></tr>`,
-			web.E(r.Device), web.E(r.APNsEnv), statusBadge(r.Status, r.HTTPStatus, r.Reason),
+			web.E(r.Device), web.E(r.APNsEnv), statusBadge(v, r.Status, r.HTTPStatus, r.Reason),
 			r.Attempts, web.E(trunc(r.APNsID, 12)), clock(r.Utime))
 	}
 	b.WriteString(`</tbody></table>`)
 	return b.String()
 }
 
-func statusBadge(status, httpStatus int, reason string) string {
+func statusBadge(v adminView, status, httpStatus int, reason string) string {
 	switch status {
 	case 1:
-		return `<span class="badge ok"><i></i>已送达 ` + web.E(strconv.Itoa(httpStatus)) + `</span>`
+		return `<span class="badge ok"><i></i>` +
+			web.E(fmt.Sprintf(v.t.Msgs.DeliveredCode, strconv.Itoa(httpStatus))) + `</span>`
 	case 3:
-		return `<span class="badge err"><i></i>` + web.E(firstNonEmpty(reason, "失败")) + `</span>`
+		return `<span class="badge err"><i></i>` + web.E(firstNonEmpty(reason, v.t.Common.Failed)) + `</span>`
 	case 2:
-		return `<span class="badge warn"><i></i>重试中</span>`
+		return `<span class="badge warn"><i></i>` + web.E(v.t.Common.Retrying) + `</span>`
 	}
-	return `<span class="badge muted"><i></i>排队中</span>`
+	return `<span class="badge muted"><i></i>` + web.E(v.t.Common.Queued) + `</span>`
 }
 
 // ── 频道 ──────────────────────────────────────────────
@@ -363,7 +383,7 @@ func (s *Server) passwordError(c *gin.Context, code string) string {
 	case "weak":
 		return s.userText(c, uierr.PasswordWeak)
 	case "err":
-		return "改密码没有成功，密码没有改动。服务器日志里有原因。"
+		return web.T(reqLang(c)).Admin.Common.PwChangeFail
 	}
 	return ""
 }
@@ -381,7 +401,7 @@ func (s *Server) actionError(c *gin.Context, param, notFoundCode string) string 
 	case "error":
 		// 内部错误不进 uierr：那批 code 是按「用户的下一步」分的，
 		// 而这里用户没有下一步，只能重试或者去看日志。
-		msg = "操作没有成功。服务器日志里有原因。"
+		msg = web.T(reqLang(c)).Admin.Common.ActionFail
 	default:
 		return ""
 	}
@@ -389,6 +409,7 @@ func (s *Server) actionError(c *gin.Context, param, notFoundCode string) string 
 }
 
 func (s *Server) adminUsers(c *gin.Context) {
+	v := newAdminView(c)
 	q := strings.TrimSpace(c.Query("q"))
 	page, _ := strconv.Atoi(c.Query("page"))
 	if page < 1 {
@@ -406,62 +427,82 @@ func (s *Server) adminUsers(c *gin.Context) {
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<div class="ph"><div><h1>成员</h1><div class="sub">这台服务器上的收件身份 · 共 %d 人</div></div>`+
-		`<div class="spacer"></div><a class="btn" href="/admin/pair">%s配对设备</a></div>`, total, web.Svg("qr", 15))
-	fmt.Fprintf(&b, `<form class="tools" method="get"><input name="q" placeholder="搜成员名字" value="%s" style="min-width:220px">`+
-		`<button class="btn" type="submit">搜索</button>%s</form>`,
-		web.E(q), map[bool]string{true: `<a class="btn ghost" href="/admin/users">清空</a>`, false: ""}[q != ""])
+	fmt.Fprintf(&b, `<div class="ph"><div><h1>%s</h1><div class="sub">%s</div></div>`+
+		`<div class="spacer"></div><a class="btn" href="/admin/pair">%s%s</a></div>`,
+		web.E(v.t.Nav.Users), web.E(fmt.Sprintf(v.t.Users.Sub, total)),
+		web.Svg("qr", 15), web.E(v.t.Nav.Pair))
+	fmt.Fprintf(&b, `<form class="tools" method="get"><input name="q" placeholder="%s" value="%s" style="min-width:220px">`+
+		`<button class="btn" type="submit">%s</button>%s</form>`,
+		web.E(v.t.Users.SearchPh), web.E(q), web.E(v.t.Common.Search),
+		map[bool]string{
+			true:  `<a class="btn ghost" href="/admin/users">` + web.E(v.t.Users.Clear) + `</a>`,
+			false: "",
+		}[q != ""])
 	b.WriteString(s.actionError(c, "member", uierr.MemberNotFound))
 
 	if len(rows) == 0 {
 		b.WriteString(web.Card("", "", web.Empty(map[bool]string{
-			true:  "没有叫这个名字的成员。",
-			false: "还没有成员。点右上角配对一台设备就会建出第一个。",
+			true:  v.t.Users.EmptyQuery,
+			false: v.t.Users.EmptyAll,
 		}[q != ""])))
-		s.shell(c, "users", []web.Crumb{web.C("成员")}, b.String())
+		s.shell(c, "users", []web.Crumb{web.C(v.t.Nav.Users)}, b.String())
 		return
 	}
 
 	var t strings.Builder
-	t.WriteString(`<table><thead><tr><th style="padding-left:16px">名字</th><th>角色</th>` +
-		`<th>设备</th><th>频道</th><th>消息</th><th>最后登录</th><th>配额</th></tr></thead><tbody>`)
+	fmt.Fprintf(&t, `<table><thead><tr><th style="padding-left:16px">%s</th><th>%s</th>`+
+		`<th>%s</th><th>%s</th><th>%s</th><th>%s</th><th>%s</th></tr></thead><tbody>`,
+		web.E(v.t.Common.Name), web.E(v.t.Common.Role), web.E(v.t.Common.Device),
+		web.E(v.t.Common.Channel), web.E(v.t.Common.Messages),
+		web.E(v.t.Users.ColLogin), web.E(v.t.Users.ColQuota))
 	for _, r := range rows {
-		role := `<span class="badge muted">收件人</span>`
+		role := `<span class="badge muted">` + web.E(v.t.Common.RoleMember) + `</span>`
 		if r.Role == models.RoleAdmin {
-			role = `<span class="badge info">管理员</span>`
+			role = `<span class="badge info">` + web.E(v.t.Common.RoleAdmin) + `</span>`
 		}
 		fmt.Fprintf(&t, `<tr><td style="padding-left:16px;font-weight:500">`+
 			`<a href="/admin/users/%d">%s</a></td><td>%s</td>`+
 			`<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td>`+
 			`<td class="dim">%s</td><td style="text-align:right;padding-right:16px">%s</td></tr>`,
 			r.Id, web.E(r.Name), role, r.Devices, r.Channels,
-			r.Messages, ago(r.LastLoginAt),
-			unlimitedToggle(strconv.FormatInt(r.Id, 10), r.Unlimited != 0))
+			r.Messages, v.ago(r.LastLoginAt),
+			unlimitedToggle(v, strconv.FormatInt(r.Id, 10), r.Unlimited != 0))
 	}
 	t.WriteString(`</tbody></table>`)
 	if int64(page*pageSize) < total {
-		fmt.Fprintf(&t, `<div class="pager"><a class="btn outline sm" href="?q=%s&page=%d">下一页%s</a>`+
-			`<span class="dim">第 %d 页 · 共 %d 人</span></div>`,
-			web.E(q), page+1, web.Svg("chev", 14), page, total)
+		fmt.Fprintf(&t, `<div class="pager"><a class="btn outline sm" href="?q=%s&page=%d">%s%s</a>`+
+			`<span class="dim">%s</span></div>`,
+			web.E(q), page+1, web.E(v.t.Common.NextPage), web.Svg("chev", 14),
+			web.E(pagerInfo(v, page, total)))
 	}
 	b.WriteString(web.Card("", "", t.String()))
-	b.WriteString(`<div class="note">` + web.Svg("alert", 14) +
-		`<p>扫码接入的人是<b>收件人</b>：没有用户名密码，登录不了这个后台，身份就是设备上那把凭据。` +
-		`第一个管理员在服务器首次启动时自动建好，再加人用命令行 —— <code class="code">knockbox user add &lt;名字&gt;</code>。</p></div>`)
-	s.shell(c, "users", []web.Crumb{web.C("成员")}, b.String())
+	// 这一段带标签（<b>、<code>），语料里就是 HTML，所以不过 E()。
+	// 它是我们自己写的文案，不是外部输入。
+	b.WriteString(`<div class="note">` + web.Svg("alert", 14) + `<p>` + v.t.Users.Note + `</p></div>`)
+	s.shell(c, "users", []web.Crumb{web.C(v.t.Nav.Users)}, b.String())
+}
+
+// pagerInfo 「第 N 页 · 共 M 人」。两个数字，所以不走 Plural，
+// 自己按 M 选那一条。
+func pagerInfo(v adminView, page int, total int64) string {
+	f := v.t.Users.PagerInfo
+	if total == 1 {
+		f = v.t.Users.PagerOne
+	}
+	return fmt.Sprintf(f, page, total)
 }
 
 // unlimitedToggle 单个用户的配额豁免。
 // 运营者自己的账号不该被自己设的限额卡住，而他用的是同一套接口。
-func unlimitedToggle(id string, on bool) string {
-	label, style := "豁免配额", "ghost"
+func unlimitedToggle(v adminView, id string, on bool) string {
+	label, style := v.t.Users.Unlimited, "ghost"
 	if on {
-		label, style = "已豁免 · 点击恢复", "outline"
+		label, style = v.t.Users.UnlimitedOn, "outline"
 	}
 	return fmt.Sprintf(`<form class="inline" method="post" action="/admin/users/%s/unlimited">`+
 		`<input type="hidden" name="on" value="%d">`+
 		`<button class="btn %s sm" type="submit">%s</button></form>`,
-		web.E(id), boolInt(!on), style, label)
+		web.E(id), boolInt(!on), style, web.E(label))
 }
 
 func boolInt(b bool) int {
@@ -492,6 +533,7 @@ func (s *Server) adminUserUnlimited(c *gin.Context) {
 // ── 设置 ──────────────────────────────────────────────
 
 func (s *Server) adminSettings(c *gin.Context) {
+	v := newAdminView(c)
 	uid := middleware.UserID(c)
 	u := s.quota().Usage(uid)
 	st := s.Settings
@@ -506,7 +548,7 @@ func (s *Server) adminSettings(c *gin.Context) {
 		if st.FromConfig(key) {
 			return ""
 		}
-		return `<span class="dot-set" title="已在后台修改"></span>`
+		return `<span class="dot-set" title="` + web.E(v.t.Settings.DotTitle) + `"></span>`
 	}
 	row := func(label, hint, ctl, key string) string {
 		return fmt.Sprintf(`<div class="set-row"><div class="lab"><b>%s</b><span>%s</span></div>`+
@@ -524,15 +566,15 @@ func (s *Server) adminSettings(c *gin.Context) {
 	}
 
 	var b strings.Builder
-	b.WriteString(`<div class="ph"><div><h1>设置</h1>` +
-		`<div class="sub">改完立刻生效，不用重启</div></div></div>`)
+	b.WriteString(`<div class="ph"><div><h1>` + web.E(v.t.Nav.Settings) + `</h1>` +
+		`<div class="sub">` + web.E(v.t.Settings.Sub) + `</div></div></div>`)
 	b.WriteString(web.Tabs(tab, [][3]string{
-		{"public", "对外开放", "/admin/settings"},
-		{"server", "服务器", "/admin/settings?tab=server"},
+		{"public", v.t.Settings.TabPublic, "/admin/settings"},
+		{"server", v.t.Settings.TabServer, "/admin/settings?tab=server"},
 	}))
 	if c.Query("saved") == "1" {
 		b.WriteString(`<div class="narrow"><div class="note">` + web.Svg("zap", 14) +
-			`<p>已保存。</p></div></div>`)
+			`<p>` + web.E(v.t.Settings.Saved) + `</p></div></div>`)
 	}
 	// 改密码失败的三种情形。成功那一条不在这里：密码一改会话就失效了，
 	// 人已经被带到登录页，提示也留在那边。
@@ -551,50 +593,55 @@ func (s *Server) adminSettings(c *gin.Context) {
 			checked = " checked"
 		}
 		sw := fmt.Sprintf(`<label class="sw"><input type="checkbox" name="public_enabled" value="1"%s><i></i></label>`, checked)
-		open := row("公共模式", "任何人打开首页都能扫码接入", sw, "public_enabled") +
-			row("每 IP 每小时注册", "挡批量注册", num("register_per_hour", st.RegisterPerHour()), "register_per_hour") +
-			fmt.Sprintf(`<div class="set-row"><div class="lab"><b>站点名</b><span>显示在接入页上</span></div>`+
+		open := row(v.t.Settings.PublicMode, v.t.Settings.PublicHint, sw, "public_enabled") +
+			row(v.t.Settings.RegPerHour, v.t.Settings.RegHint,
+				num("register_per_hour", st.RegisterPerHour()), "register_per_hour") +
+			fmt.Sprintf(`<div class="set-row"><div class="lab"><b>%s</b><span>%s</span></div>`+
 				`<div class="ctl">%s<input type="text" name="site_name" value="%s"></div></div>`,
+				web.E(v.t.Settings.SiteName), web.E(v.t.Settings.SiteHint),
 				mark("site_name"), web.E(st.SiteName()))
-		b.WriteString(web.Card("对外开放", "", open))
+		b.WriteString(web.Card(v.t.Settings.TabPublic, "", open))
 
-		quota := row("频道数上限", "每个成员，0 = 不限", num("max_channels", st.MaxChannels()), "max_channels") +
-			row("每 24 小时消息", "滚动窗口，不是按自然日清零", num("max_per_day", st.MaxPerDay()), "max_per_day") +
-			row("消息保留天数", "超期自动物理删除，0 = 永久", num("retention_days", st.RetentionDays()), "retention_days")
+		quota := row(v.t.Settings.MaxChannels, v.t.Settings.MaxChHint,
+			num("max_channels", st.MaxChannels()), "max_channels") +
+			row(v.t.Settings.MaxPerDay, v.t.Settings.MaxDayHint,
+				num("max_per_day", st.MaxPerDay()), "max_per_day") +
+			row(v.t.Settings.Retention, v.t.Settings.RetHint,
+				num("retention_days", st.RetentionDays()), "retention_days")
+		// 语料里带 <b> 和一个链接，所以不过 E()——它是我们自己写的文案。
 		quota += `<div class="card-foot"><div class="dim" style="font-size:12.5px;flex:1">` +
-			`<b>配额只在公共模式下生效。</b>自建模式下自己的数据不该被限；` +
-			`单个成员还能在<a href="/admin/users">成员</a>页里单独豁免。</div></div>`
-		b.WriteString(web.Card("每个成员的配额", "", quota))
+			v.t.Settings.QuotaNote + `</div></div>`
+		b.WriteString(web.Card(v.t.Settings.CardQuota, "", quota))
 
+		dot := `<span class="dot-set" style="display:inline-block;vertical-align:middle"></span>`
 		b.WriteString(`<div style="display:flex;align-items:center;gap:12px">` +
-			`<button class="btn" type="submit">保存</button>` +
-			`<span class="dim" style="font-size:12.5px">带 <span class="dot-set" ` +
-			`style="display:inline-block;vertical-align:middle"></span> 的项已在后台改过，` +
-			`其余用 config.toml 里的值。</span></div>`)
+			`<button class="btn" type="submit">` + web.E(v.t.Common.Save) + `</button>` +
+			`<span class="dim" style="font-size:12.5px">` +
+			fmt.Sprintf(web.E(v.t.Settings.SaveHint), dot) + `</span></div>`)
 		b.WriteString(`</form>`)
 	} else {
 		// ── 服务器信息（只读） ────────────────────────────────
-		mode := `<span class="badge muted">自建模式</span>`
+		mode := `<span class="badge muted">` + web.E(v.t.Settings.ModeSelf) + `</span>`
 		if st.PublicEnabled() {
-			mode = `<span class="badge info">公共模式</span>`
+			mode = `<span class="badge info">` + web.E(v.t.Settings.ModePublic) + `</span>`
 		}
-		info := row("名称", "", web.E(s.Name), "") +
-			row("对外地址", "", `<span class="mono">`+web.E(s.ExternalURL)+`</span>`, "") +
-			row("版本", "", `<span class="mono">`+web.E(s.Version)+`</span>`, "") +
-			row("运行模式", "", mode, "")
-		b.WriteString(`<div class="narrow">` + web.Card("服务器", "", info) + `</div>`)
+		info := row(v.t.Settings.InfoName, "", web.E(s.Name), "") +
+			row(v.t.Settings.InfoURL, "", `<span class="mono">`+web.E(s.ExternalURL)+`</span>`, "") +
+			row(v.t.Settings.InfoVersion, "", `<span class="mono">`+web.E(s.Version)+`</span>`, "") +
+			row(v.t.Settings.InfoMode, "", mode, "")
+		b.WriteString(`<div class="narrow">` + web.Card(v.t.Settings.CardServer, "", info) + `</div>`)
 
 		kv := func(k, v string) string {
 			return fmt.Sprintf(`<div><div class="k">%s</div><div class="v num">%s</div></div>`,
 				web.E(k), web.E(v))
 		}
 		usage := `<div class="kv-grid">` +
-			kv("频道数", fmt.Sprint(u.Channels)) +
-			kv("24 小时消息", fmt.Sprint(u.Today)) +
-			kv("消息总数", fmt.Sprint(u.Messages)) +
-			kv("附件占用", bytesize.Decimal(u.FileBytes)) +
+			kv(v.t.Settings.UsageChannels, fmt.Sprint(u.Channels)) +
+			kv(v.t.Settings.UsageToday, fmt.Sprint(u.Today)) +
+			kv(v.t.Settings.UsageTotal, fmt.Sprint(u.Messages)) +
+			kv(v.t.Settings.UsageFiles, bytesize.Decimal(u.FileBytes)) +
 			`</div>`
-		b.WriteString(`<div class="narrow">` + web.Card("你自己的用量", "", usage) + `</div>`)
+		b.WriteString(`<div class="narrow">` + web.Card(v.t.Settings.CardUsage, "", usage) + `</div>`)
 
 		// 改密码必须能在这里做完。第一个管理员是服务器首次启动时自动建的，
 		// 密码随机且只打印那一次——把「改掉它」放在命令行里，等于要求每个自建的人
@@ -604,25 +651,42 @@ func (s *Server) adminSettings(c *gin.Context) {
 				`<div class="ctl"><input type="password" name="%s" autocomplete="%s" required></div></div>`,
 				web.E(label), name, autocomplete)
 		}
-		pw := pwRow("当前密码", "current", "current-password") +
-			pwRow("新密码", "new", "new-password") +
-			pwRow("再输一次", "confirm", "new-password") +
+		pw := pwRow(v.t.Settings.PwCurrent, "current", "current-password") +
+			pwRow(v.t.Settings.PwNew, "new", "new-password") +
+			pwRow(v.t.Settings.PwConfirm, "confirm", "new-password") +
 			`<div class="card-foot"><div class="dim" style="font-size:12.5px;flex:1">` +
-			`至少 8 位。改完这个账号的登录状态会全部失效，要用新密码重新登录一次。</div></div>`
+			web.E(v.t.Settings.PwNote) + `</div></div>`
 		b.WriteString(`<div class="narrow"><form method="post" action="/admin/account/password" ` +
 			`style="display:flex;flex-direction:column;gap:16px">` +
-			web.Card("修改密码（"+web.E(currentName)+"）", "", pw) +
-			`<div><button class="btn" type="submit">修改密码</button></div></form></div>`)
+			web.Card(fmt.Sprintf(v.t.Settings.PwCard, currentName), "", pw) +
+			`<div><button class="btn" type="submit">` + web.E(v.t.Settings.PwSubmit) +
+			`</button></div></form></div>`)
 
-		b.WriteString(`<div class="narrow">` + web.Card("其他账号操作", "", `<div class="card-b" style="padding:16px">`+
-			`<p style="margin:0 0 10px;line-height:1.7">新增、停用、重设别人的密码在命令行里做，`+
-			`任何操作都不需要直接改数据库：</p>`+
-			`<pre class="body">knockbox user add &lt;名字&gt;       新建
-knockbox user passwd &lt;名字&gt;    改密码
-knockbox user list             列出
-knockbox user disable &lt;名字&gt;   停用并踢掉会话</pre></div>`) + `</div>`)
+		// 命令本身不翻译，只翻译后面那句它做什么。对齐用的是等宽字体里的空格，
+		// 所以宽度按各语言自己的长度算，不能写死。
+		cli := []struct{ cmd, note string }{
+			{"knockbox user add &lt;name&gt;", v.t.Settings.CLIAdd},
+			{"knockbox user passwd &lt;name&gt;", v.t.Settings.CLIPasswd},
+			{"knockbox user list", v.t.Settings.CLIList},
+			{"knockbox user disable &lt;name&gt;", v.t.Settings.CLIDisable},
+		}
+		wide := 0
+		for _, it := range cli {
+			if n := len([]rune(it.cmd)); n > wide {
+				wide = n
+			}
+		}
+		var cmds strings.Builder
+		for _, it := range cli {
+			cmds.WriteString(it.cmd + strings.Repeat(" ", wide-len([]rune(it.cmd))+4) +
+				web.E(it.note) + "\n")
+		}
+		b.WriteString(`<div class="narrow">` + web.Card(v.t.Settings.CardCLI, "",
+			`<div class="card-b" style="padding:16px">`+
+				`<p style="margin:0 0 10px;line-height:1.7">`+web.E(v.t.Settings.CLIIntro)+`</p>`+
+				`<pre class="body">`+strings.TrimRight(cmds.String(), "\n")+`</pre></div>`) + `</div>`)
 	}
-	s.shell(c, "settings", []web.Crumb{web.C("设置")}, b.String())
+	s.shell(c, "settings", []web.Crumb{web.C(v.t.Nav.Settings)}, b.String())
 }
 
 // adminPasswordSave 改当前登录账号的密码。
@@ -683,8 +747,9 @@ func (s *Server) adminSettingsSave(c *gin.Context) {
 		}
 	}
 	if err := s.Settings.Save(vals); err != nil {
-		s.shell(c, "settings", []web.Crumb{web.C("设置")},
-			web.Card("", "", web.Empty("保存失败："+err.Error())))
+		v := newAdminView(c)
+		s.shell(c, "settings", []web.Crumb{web.C(v.t.Nav.Settings)},
+			web.Card("", "", web.Empty(fmt.Sprintf(v.t.Settings.SaveFailed, err.Error()))))
 		return
 	}
 	c.Redirect(http.StatusFound, "/admin/settings?saved=1")
