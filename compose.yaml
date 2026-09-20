@@ -1,0 +1,39 @@
+# Knockbox — a self-hosted push notification server for iOS.
+#
+#   docker compose up -d && docker compose logs
+#
+# The first start creates the database and an admin account, and prints that
+# account's username and password in the log — once, and nowhere else.
+#
+# Change IGO_SERVER_EXTERNAL_URL before you start. Everything else has a working
+# default; the full list is in docs/deploy.md.
+
+services:
+  knockbox:
+    image: ghcr.io/aichy126/knockbox:latest
+    container_name: knockbox
+    restart: unless-stopped
+    ports:
+      # Loopback only — terminate TLS in a reverse proxy in front of it.
+      # Just trying it out on this machine? Use "8080:8080" instead.
+      - "127.0.0.1:8080:8080"
+    environment:
+      # The address your phone will actually reach. Pairing links and attachment
+      # URLs are built from it, so "localhost" works only while you are testing on
+      # this same machine.
+      IGO_SERVER_EXTERNAL_URL: "https://push.example.com"
+      # The name the app shows for this server.
+      IGO_SERVER_NAME: "My Push"
+    volumes:
+      # The database, attachments, logs and backups all live here. This is the
+      # one thing to back up.
+      - knockbox-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  knockbox-data:

@@ -25,7 +25,16 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-    files: [README.md, README.zh-CN.md, SECURITY.md, SECURITY.zh-CN.md, LICENSE, config.toml.example]
+    # 部署和发送的说明随包走：下二进制的人多半没有 clone 仓库。
+    files:
+      - README.md
+      - README.zh-CN.md
+      - SECURITY.md
+      - SECURITY.zh-CN.md
+      - LICENSE
+      - config.toml.example
+      - compose.yaml
+      - docs/*.md
 
 checksum:
   name_template: checksums.txt
