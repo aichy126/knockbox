@@ -64,7 +64,11 @@ jobs:
       - name: 产物 embed 进去了
         run: |
           go build -o /tmp/kb .
-          /tmp/kb serve -c <(sed -e 's|./data/|/tmp/kbdata/|g' -e 's|^address = ":8080"|address = ":18099"|' config.toml.example) &
+          # 配置要写成真文件：加载器按扩展名认格式，进程替换给出的 /dev/fd/63 没有扩展名。
+          sed -e 's|./data/|/tmp/kbdata/|g' -e 's|^address = ":8080"|address = ":18099"|' \
+              config.toml.example > /tmp/kb.toml
+          mkdir -p /tmp/kbdata   # SQLite 不会自己建目录
+          /tmp/kb serve -c /tmp/kb.toml &
           for i in $(seq 1 30); do curl -fsS localhost:18099/health >/dev/null 2>&1 && break; sleep 1; done
           code=$(curl -s -o /tmp/admin.html -w '%{http_code}' localhost:18099/admin)
           test "$code" = 200 || { echo "GET /admin -> $code"; cat /tmp/admin.html; exit 1; }
