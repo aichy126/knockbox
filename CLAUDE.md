@@ -37,6 +37,7 @@ main.go → internal/cli/        cobra 子命令，装配依赖（serve.go 是�
           internal/api/        HTTP 处理函数；router.go 是唯一的路由注册处
           internal/api/mcp.go  MCP（Streamable HTTP）接入面，与 /send 同权同路
           internal/api/web/    服务端直出 HTML，无前端构建步骤
+          internal/api/web/locales/  两门语言的全部文案，加一门语言只加一个文件
           internal/middleware/ 三套鉴权 + 限流
           internal/service/    业务编排，事务边界在这一层
           internal/dao/        只做 SQL，不含业务判断
@@ -57,6 +58,17 @@ main.go → internal/cli/        cobra 子命令，装配依赖（serve.go 是�
 ## 不能破坏的约定
 
 这些都是**破坏之后不报错、只是悄悄不对**的地方。改到相关代码时先确认自己没有踩到。
+
+**界面上的每一句话都在 `locales/*.json` 里，不在 Go 里。** 公开页的摊在顶层，
+管理界面的在 `admin` 下按页分组（结构体见 `web/i18n_admin.go`）。
+往页面里写死一句话不会报错——它在中文下看起来完全正常，因为它本来就是中文。
+`TestAdminPagesHaveNoChineseInEnglish` 拿英文渲染每一页再扫汉字，就是为了让这种事当场红。
+渲染函数拿文案走 `adminView`（`api/admin.go`），不要在函数里自己 `web.T(...)`。
+
+**语言的判定顺序是 `?lang=` → cookie → Accept-Language → 英文。**
+cookie 只有管理界面会写（`/lang`），公开页只读不写——陌生人点一次语言开关，
+不该在他浏览器里留下东西。`/lang` 的 `next` 必须校验成本站相对路径，
+否则这条路由就是一个挂在自己域名下的开放重定向。
 
 **rev 是增量同步的唯一游标。** `dao.NextRev` 必须在调用方的事务里执行——
 分配 rev 和用它写的那一行要么一起成功要么一起回滚。留下空洞的话，

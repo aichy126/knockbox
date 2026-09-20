@@ -50,7 +50,7 @@ func NoticePage(lang Lang, title, detail string) string {
 		"{{DETAIL}}", E(detail),
 	).Replace(`<!doctype html><html lang="{{LANG}}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{TITLE}}</title><style>{{STYLE}}{{LANGCSS}}
+<title>{{TITLE}}</title>` + IconLinks + `<style>{{STYLE}}{{LANGCSS}}
 .mid{max-width:520px;margin:0 auto;padding:80px 24px;text-align:center}
 .mid h1{font-size:22px;margin:0 0 8px}</style></head>
 <body>{{LANGSW}}<div class="app"><div class="mid"><h1>{{TITLE}}</h1>
@@ -214,7 +214,7 @@ func snipLive(id, lang, code string, live bool, token string, t Texts) string {
 
 const guideTpl = `<!doctype html><html lang="{{LANG}}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{TITLE}}</title><style>{{STYLE}}{{CODECSS}}{{LANGCSS}}
+<title>{{TITLE}}</title>` + IconLinks + `<style>{{STYLE}}{{CODECSS}}{{LANGCSS}}
 .doc{max-width:780px;margin:0 auto;padding:40px 24px 96px}
 .doc h1{font-size:28px;margin:0 0 6px;letter-spacing:-0.02em}
 .doc .lede{color:var(--muted-fg);font-size:14.5px;line-height:1.7;margin:0 0 26px}

@@ -11,12 +11,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// reqLang 这次请求该用哪种语言。`?lang=` 优先，其次浏览器的 Accept-Language，默认英文。
+// reqLang 这次请求该用哪种语言。
+// `?lang=` 优先，其次 cookie，再次浏览器的 Accept-Language，默认英文。
 //
-// 不落 cookie：语言只影响这一次渲染，页面右上角那个开关随时能换。
-// 存偏好意味着多一个要解释、要清除的状态，而换回去的代价只是再点一次。
+// cookie 只有管理界面会写（见 /lang）。公开页仍然不落它：一个陌生人点一次
+// 语言开关，不该在他的浏览器里留下东西，换回去的代价也只是再点一次。
+// 但两边都【读】它——同一个人在后台选了中文，公开页跟着中文才是对的。
 func reqLang(c *gin.Context) web.Lang {
-	return web.PickLang(c.Query("lang"), c.GetHeader("Accept-Language"))
+	cookie, _ := c.Cookie(web.LangCookie)
+	return web.PickLang(c.Query("lang"), cookie, c.GetHeader("Accept-Language"))
 }
 
 // sendGuide 一个频道的发送页：说明和示例都在这一页，示例还能真发出去。

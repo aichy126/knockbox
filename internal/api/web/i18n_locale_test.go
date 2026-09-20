@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -67,27 +68,31 @@ func TestUntranslatedFallsBackToEnglish(t *testing.T) {
 	}
 }
 
-// 语言选择：查询参数优先，其次 Accept-Language，最后英文。
+// 语言选择：查询参数优先，其次 cookie，再次 Accept-Language，最后英文。
 // 地区变体要能落到主语言上——否则 zh-CN 的浏览器会拿到英文。
 func TestPickLang(t *testing.T) {
 	cases := []struct {
-		name, query, accept string
-		want                Lang
+		name, query, cookie, accept string
+		want                        Lang
 	}{
-		{"什么都没有就是英文", "", "", LangEN},
-		{"查询参数说了算", "zh", "en-US,en;q=0.9", LangZH},
-		{"查询参数优先于 Accept-Language", "en", "zh-CN,zh;q=0.9", LangEN},
-		{"地区变体落到主语言", "zh-CN", "", LangZH},
-		{"大小写不敏感", "ZH-Hans", "", LangZH},
-		{"Accept-Language 按顺序取第一个认识的", "", "zh-CN,zh;q=0.9,en;q=0.8", LangZH},
-		{"不认识的排在前面就跳过", "", "fr-FR,fr;q=0.9,zh;q=0.8", LangZH},
-		{"全都不认识就英文", "", "fr-FR,de;q=0.9", LangEN},
-		{"拼错的 lang 不该把页面打没", "zzz", "", LangEN},
+		{"什么都没有就是英文", "", "", "", LangEN},
+		{"查询参数说了算", "zh", "", "en-US,en;q=0.9", LangZH},
+		{"查询参数优先于 Accept-Language", "en", "", "zh-CN,zh;q=0.9", LangEN},
+		{"地区变体落到主语言", "zh-CN", "", "", LangZH},
+		{"大小写不敏感", "ZH-Hans", "", "", LangZH},
+		{"Accept-Language 按顺序取第一个认识的", "", "", "zh-CN,zh;q=0.9,en;q=0.8", LangZH},
+		{"不认识的排在前面就跳过", "", "", "fr-FR,fr;q=0.9,zh;q=0.8", LangZH},
+		{"全都不认识就英文", "", "", "fr-FR,de;q=0.9", LangEN},
+		{"拼错的 lang 不该把页面打没", "zzz", "", "", LangEN},
+		// cookie 这一档：后台切过语言之后，浏览器说什么都不再算数。
+		{"cookie 压过浏览器语言", "", "zh", "en-US,en;q=0.9", LangZH},
+		{"查询参数又压过 cookie", "en", "zh", "zh-CN", LangEN},
+		{"cookie 拼错了就往下走", "", "zzz", "zh-CN", LangZH},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := PickLang(c.query, c.accept); got != c.want {
-				t.Errorf("PickLang(%q, %q) = %q，想要 %q", c.query, c.accept, got, c.want)
+			if got := PickLang(c.query, c.cookie, c.accept); got != c.want {
+				t.Errorf("PickLang(%q, %q, %q) = %q，想要 %q", c.query, c.cookie, c.accept, got, c.want)
 			}
 		})
 	}
@@ -167,6 +172,42 @@ func TestDailyQuotaWordingIsARollingWindow(t *testing.T) {
 	for _, code := range []string{uierr.QuotaDaily, uierr.QuotaDailyWithETA} {
 		if s := en[code]; !strings.Contains(s, "24 hours") {
 			t.Errorf("%s 的英文也要说清窗口：%s", code, s)
+		}
+	}
+}
+
+// 管理界面的每一个字段，两门语言都得有内容。
+//
+// 回落机制保证了「没翻的会落成英文」，所以中文缺一条不会显示成空白——
+// 它会显示成英文，夹在一片中文里。那比空白更难发现，因为页面看起来是好的。
+// 这里用反射走一遍，缺哪条就报哪条的路径。
+func TestAdminTextsAreComplete(t *testing.T) {
+	for _, l := range Langs() {
+		t.Run(string(l), func(t *testing.T) {
+			var missing []string
+			walkStrings(reflect.ValueOf(T(l).Admin), "admin", &missing)
+			for _, path := range missing {
+				t.Errorf("%s 语料里 %s 是空的", l, path)
+			}
+		})
+	}
+}
+
+// walkStrings 递归收集所有为空的 string 字段的路径。
+func walkStrings(v reflect.Value, path string, missing *[]string) {
+	switch v.Kind() {
+	case reflect.Struct:
+		for i := range v.NumField() {
+			f := v.Type().Field(i)
+			name := f.Tag.Get("json")
+			if name == "" {
+				name = f.Name
+			}
+			walkStrings(v.Field(i), path+"."+name, missing)
+		}
+	case reflect.String:
+		if v.String() == "" {
+			*missing = append(*missing, path)
 		}
 	}
 }

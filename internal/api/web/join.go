@@ -79,7 +79,7 @@ func jsStr(s string) string { return strconv.Quote(s) }
 
 const joinTpl = `<!doctype html><html lang="{{LANG}}"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{TITLE}}</title><style>{{STYLE}}{{LANGCSS}}
+<title>{{TITLE}}</title>` + IconLinks + `<style>{{STYLE}}{{LANGCSS}}
 .join{max-width:1040px;margin:0 auto;padding:48px 24px}
 .join h1{font-size:30px;margin:0 0 6px;letter-spacing:-0.02em}
 .join .lede{color:var(--muted-fg);margin:0 0 28px;font-size:15px;line-height:1.6;max-width:60ch}

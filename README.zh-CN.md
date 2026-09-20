@@ -89,12 +89,22 @@ Linux、macOS、Windows、FreeBSD 的预编译二进制。**不需要数据库�
 
 ## 它自带页面
 
-服务端在 `/docs` 上有一份发送说明，中英双语，地址已经填好，每个例子都带「发这条」按钮。
+服务端在 `/docs` 上有一份发送说明，地址已经填好，每个例子都带「发这条」按钮。
 公共实例上的那份在 <https://knockbox.miramiao.com/docs>。
 
 <p align="center">
   <img src="https://aichy126.github.io/miramiao/knockbox/images/web-docs-zh.png" width="760" alt="自带的发送说明页，给出发送地址和可直接运行的 curl 示例">
 </p>
+
+`/login` 后面是一个管理后台：概览、消息搜索、成员和他们的设备、配对，
+以及那些改完不用重启的设置。
+
+<p align="center">
+  <img src="https://aichy126.github.io/miramiao/knockbox/images/web-admin-zh.png" width="760" alt="后台概览：消息数、推送成功率、可推送设备、频道四个数字，下面是最近消息列表">
+</p>
+
+**每一页都是中英双语**，这个后台也是，右上角可以切，后台还会记住你的选择。
+加一门语言就是往 `internal/api/web/locales/` 放一个 JSON 文件，Go 代码一行不用改。
 
 ## 文档
 
@@ -121,9 +131,6 @@ Linux、macOS、Windows、FreeBSD 的预编译二进制。**不需要数据库�
   [SECURITY.zh-CN.md](SECURITY.zh-CN.md)
 - **频道 token 明文存库。** 因为产品要求「在 app 里随时复制 curl」，哈希存储做不到这件事。
   它是只写凭据、只作用于一个频道、受速率限制，且随时可以轮换。
-- **管理后台只有中文。** 陌生人会走到的那几页——接入页、发送说明页，以及它们的错误落地页
-  ——是中英双语且默认英文；`/login` 与 `/admin/*` 不是。后台里没有独占的能力：每一件事在
-  命令行和 HTTP 接口上都做得到，那两处是英文。
 - **`/admin/api/*` 不是公开契约。** `/api/v1` 才是。`/admin/api/` 下的一切只服务本仓库
   自带的后台，后台改版它就跟着改。[→](docs/api.zh-CN.md#什么是公开契约)
 

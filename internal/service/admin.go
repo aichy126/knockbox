@@ -115,7 +115,7 @@ func (a *Admin) Failures(uid, since int64, limit int) ([]FailureRow, error) {
 	args = append(args, limit)
 	var out []FailureRow
 	err := a.d.Engine().SQL(`
-		SELECT COALESCE(NULLIF(p.reason,''),'(无原因)') AS reason, p.http_status, COUNT(*) AS n
+		SELECT COALESCE(p.reason,'') AS reason, p.http_status, COUNT(*) AS n
 		FROM push_log p JOIN message m ON m.id=p.message_id
 		WHERE p.created_at>=? AND p.status=3`+mine+`
 		GROUP BY reason, p.http_status ORDER BY n DESC LIMIT ?`, args...).Find(&out)

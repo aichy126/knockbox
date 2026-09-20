@@ -513,14 +513,18 @@ func TestEmptyListIsArrayNotNull(t *testing.T) {
 	}
 }
 
-// 设置页的 tab 用 key 不用中文文案：文案一翻译，中文当路由状态的那条链接就点不亮了。
+// 设置页的 tab 用 key 不用文案：拿文案当路由状态的话，它一翻译那条链接就点不亮了。
+// 所以这里断言的是【两种语言下同一个 ?tab=server 都打开同一页】，
+// 而判断「是哪一页」也不能靠文案——用只有那一页才有的表单字段。
 func TestSettingsTabUsesKeyNotLabel(t *testing.T) {
 	_, r, cookie, _ := adminWith(t, "别人")
-	body := adminGet(t, r, "/admin/settings?tab=server", cookie).Body.String()
-	if !strings.Contains(body, "改密码") {
-		t.Error("?tab=server 应当打开「服务器」那一页")
-	}
-	if strings.Contains(body, "tab=%E6%9C%8D%E5%8A%A1%E5%99%A8") || strings.Contains(body, "tab=服务器") {
-		t.Error("链接里还有中文当路由状态")
+	for _, lang := range []string{"", "&lang=zh", "&lang=en"} {
+		body := adminGet(t, r, "/admin/settings?tab=server"+lang, cookie).Body.String()
+		if !strings.Contains(body, `name="current"`) {
+			t.Errorf("?tab=server%s 应当打开「服务器」那一页", lang)
+		}
+		if strings.Contains(body, "tab=%E6%9C%8D%E5%8A%A1%E5%99%A8") || strings.Contains(body, "tab=服务器") {
+			t.Errorf("?tab=server%s：链接里还有文案当路由状态", lang)
+		}
 	}
 }
