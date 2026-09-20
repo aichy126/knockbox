@@ -29,7 +29,7 @@ async function signOut() {
 </script>
 
 <template>
-  <div class="app">
+  <div v-if="me" class="app">
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark" v-html="mark" />
