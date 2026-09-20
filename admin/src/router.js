@@ -1,8 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { me, loadMe } from './store'
+// 登录页不走懒加载：它是唯一一个「还没登录就会用到」的页面，拆成分片等于在
+// 那段什么都没画的空白里再加一次往返。其余页面都在登录之后，照旧按需拿。
+import Login from './views/Login.vue'
 
 const routes = [
-  { path: '/login', name: 'login', component: () => import('./views/Login.vue') },
+  { path: '/login', name: 'login', component: Login },
   { path: '/admin', name: 'dash', component: () => import('./views/Overview.vue') },
   { path: '/admin/users', name: 'users', component: () => import('./views/Members.vue') },
   { path: '/admin/users/:id', name: 'member', component: () => import('./views/Member.vue') },
