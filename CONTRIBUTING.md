@@ -27,7 +27,8 @@ Go 1.26 or newer.
 
 ```bash
 cp config.toml.example config.toml   # edit server.external_url at minimum
-make build
+make admin   # 构建管理界面（需要 Node 20+），只改 Go 时可以跳过
+make build   # 它自己会先跑 make admin
 make run                             # first start creates an admin and prints its password
 ./knockbox pair                      # prints a QR code for the iOS app
 ```

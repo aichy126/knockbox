@@ -1,9 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -17,6 +17,8 @@ import (
 // 三处共同的病根是同一个：这些 handler 是照着「每个人只管自己那一份」写的，
 // 而管理后台的权限模型恰恰相反——middleware.AdminAuth 的包注释写着
 // 「这是有意的全权限：它就是这台服务器的主人」。
+//
+// 入口从表单页换成了 JSON 接口（界面改成 SPA），要盯的行为一条没变。
 
 // adminWith 建一个管理员 + 一个收件人，返回登录 cookie 与收件人 id。
 func adminWith(t *testing.T, member string) (*Server, http.Handler, string, int64) {
@@ -25,39 +27,20 @@ func adminWith(t *testing.T, member string) (*Server, http.Handler, string, int6
 	if _, err := service.NewAccount(s.DAO).Create("admin", "adminpassword1", models.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
-	form := url.Values{"username": {"admin"}, "password": {"adminpassword1"}}
-	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/login",
+		strings.NewReader(`{"username":"admin","password":"adminpassword1"}`))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	cookie := w.Header().Get("Set-Cookie")
 	if cookie == "" {
-		t.Fatal("管理员登不进去")
+		t.Fatalf("管理员登不进去：%d %s", w.Code, w.Body.String())
 	}
 	u, err := service.NewAdmin(s.DAO).CreateMember(member)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return s, r, cookie, u.Id
-}
-
-func adminPost(t *testing.T, r http.Handler, path, cookie string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, path, nil)
-	req.Header.Set("Cookie", cookie)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
-}
-
-func adminGet(t *testing.T, r http.Handler, path, cookie string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("Cookie", cookie)
-	req.Header.Set("Accept", "text/html")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	return w
 }
 
 // 注销别人的设备。成员详情页上就有这颗按钮，点了却什么都不会发生。
@@ -77,7 +60,10 @@ func TestAdminRevokesAnotherMembersDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := adminPost(t, r, "/admin/devices/"+itoa(dev.Id)+"/delete", cookie)
+	_, e, _ := apiSend(t, r, http.MethodPost, "/admin/api/devices/"+itoa(dev.Id)+"/revoke", cookie, "")
+	if e.Code != 0 {
+		t.Fatalf("注销别人的设备失败了：%s", e.Msg)
+	}
 
 	var got models.Device
 	ok, err := s.DAO.Engine().ID(dev.Id).Get(&got)
@@ -93,31 +79,31 @@ func TestAdminRevokesAnotherMembersDevice(t *testing.T) {
 	if got.APNsToken != "" {
 		t.Errorf("apns_token 应当被清空，得到 %q", got.APNsToken)
 	}
-	// 点「注销」的地方是成员详情页，回去的也该是那一页。
-	// 原来跳的 /admin/devices 是一条从未注册过的路由，结果是 404。
-	if want := "/admin/users/" + itoa(member); w.Header().Get("Location") != want {
-		t.Errorf("应当回到 %s，得到 %q", want, w.Header().Get("Location"))
+	// 回的是属主：前端据此刷新那一页，不用自己记从哪来。
+	var out struct {
+		Owner int64 `json:"owner"`
+	}
+	_ = json.Unmarshal(e.Data, &out)
+	if out.Owner != member {
+		t.Errorf("owner 应当是 %d，得到 %d", member, out.Owner)
 	}
 }
 
 // 注销一个不存在的设备要说出来，不能装作成功。
 func TestAdminRevokeUnknownDeviceReportsIt(t *testing.T) {
-	_, r, cookie, member := adminWith(t, "别人")
-	w := adminPost(t, r, "/admin/devices/999999/delete", cookie)
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "dev=notfound") {
-		t.Fatalf("应当带上 dev=notfound，得到 %q", loc)
+	_, r, cookie, _ := adminWith(t, "别人")
+	_, e, code := apiSend(t, r, http.MethodPost, "/admin/api/devices/999999/revoke", cookie, "")
+	if e.Code == 0 {
+		t.Fatal("注销一个不存在的设备报了成功")
 	}
-	// 光有 query 参数不算数：跳回去的那一页必须真的把这句话画出来，
-	// 否则只是把「悄悄什么都没做」换成了「悄悄跳回列表」。
-	body := adminGet(t, r, "/admin/users/"+itoa(member)+"?dev=notfound", cookie).Body.String()
-	if !strings.Contains(body, "no longer there") {
-		t.Error("成员详情页没有显示「这台设备已经不在了」")
+	// 带上 code 而不只是一句话：前端据此决定刷新哪一页（可能别人已经注销过了）。
+	if code != "device.not_found" {
+		t.Errorf("error_code 应当是 device.not_found，得到 %q", code)
 	}
 }
 
-// 打开别人的消息。列表页刻意跨全站（管理界面就是要看到这台服务器上的全部消息），
-// 详情页却只认自己的，于是从列表点进去必然落到「这条消息不存在」——一条死链。
+// 打开别人的消息。列表刻意跨全站（管理界面就是要看到这台服务器上的全部消息），
+// 详情却只认自己的，于是从列表点进去必然落到「这条消息不存在」——一条死链。
 func TestAdminReadsAnotherMembersMessage(t *testing.T) {
 	s, r, cookie, member := adminWith(t, "别人")
 
@@ -130,23 +116,18 @@ func TestAdminReadsAnotherMembersMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 列表页确实把它列出来了——这正是详情页必须打得开的理由
-	if body := adminGet(t, r, "/admin/messages", cookie).Body.String(); !strings.Contains(body, out.UID) {
-		t.Fatal("消息搜索页没有列出别人的消息，前提不成立")
+	// 列表确实把它列出来了——这正是详情必须打得开的理由
+	_, list, _ := apiGet(t, r, "/admin/api/messages", cookie)
+	if !strings.Contains(string(list.Data), out.UID) {
+		t.Fatal("消息列表没有列出别人的消息，前提不成立")
 	}
 
-	w := adminGet(t, r, "/admin/messages/"+out.UID, cookie)
-	if w.Code != http.StatusOK {
-		t.Fatalf("想要 200，得到 %d", w.Code)
+	_, e, code := apiGet(t, r, "/admin/api/messages/"+out.UID, cookie)
+	if e.Code != 0 {
+		t.Fatalf("打开别人的消息失败了：%s（%s）", e.Msg, code)
 	}
-	// 断言「打开了」而不是「没看到那句错误」：这个请求没带 Accept-Language，
-	// 而 reqLang 默认英文，拿中文原文去比会在一个渲染着英文错误页的响应上通过。
-	body := w.Body.String()
-	if !strings.Contains(body, "别人的消息") {
-		t.Error("详情页没有渲染出这条消息的标题——点开别人的消息落到了「未找到」")
-	}
-	if strings.Contains(body, "未找到") {
-		t.Error("面包屑停在「未找到」")
+	if !strings.Contains(string(e.Data), "别人的消息") {
+		t.Error("详情里没有这条消息的标题")
 	}
 }
 
@@ -154,41 +135,36 @@ func TestAdminReadsAnotherMembersMessage(t *testing.T) {
 // 成员可能已经被删了，或者这是一个开着的旧标签页。
 func TestUnlimitedRejectsUnknownMember(t *testing.T) {
 	_, r, cookie, _ := adminWith(t, "别人")
-	req := httptest.NewRequest(http.MethodPost, "/admin/users/999999/unlimited",
-		strings.NewReader("on=1"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Cookie", cookie)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if loc := w.Header().Get("Location"); !strings.Contains(loc, "member=notfound") {
-		t.Fatalf("应当带上 member=notfound，得到 %q", loc)
+	_, e, code := apiSend(t, r, http.MethodPost, "/admin/api/members/999999/unlimited", cookie, `{"on":true}`)
+	if e.Code == 0 {
+		t.Fatal("给一个不存在的成员设豁免报了成功")
 	}
-	body := adminGet(t, r, "/admin/users?member=notfound", cookie).Body.String()
-	if !strings.Contains(body, "no longer exists") {
-		t.Error("成员列表页没有显示「这个成员已经不存在了」")
+	if code != "member.not_found" {
+		t.Errorf("error_code 应当是 member.not_found，得到 %q", code)
 	}
 }
 
 // 豁免开关本身要真的往返。
 func TestUnlimitedRoundTrips(t *testing.T) {
 	s, r, cookie, member := adminWith(t, "别人")
-	set := func(on string) int {
-		req := httptest.NewRequest(http.MethodPost, "/admin/users/"+itoa(member)+"/unlimited",
-			strings.NewReader("on="+on))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Cookie", cookie)
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
+	set := func(on bool) int {
+		body := `{"on":false}`
+		if on {
+			body = `{"on":true}`
+		}
+		if _, e, _ := apiSend(t, r, http.MethodPost, "/admin/api/members/"+itoa(member)+"/unlimited", cookie, body); e.Code != 0 {
+			t.Fatalf("设豁免失败：%s", e.Msg)
+		}
 		var u models.User
 		if _, err := s.DAO.Engine().ID(member).Get(&u); err != nil {
 			t.Fatal(err)
 		}
 		return u.Unlimited
 	}
-	if got := set("1"); got != 1 {
+	if got := set(true); got != 1 {
 		t.Errorf("开启后应当是 1，得到 %d", got)
 	}
-	if got := set("0"); got != 0 {
+	if got := set(false); got != 0 {
 		t.Errorf("关闭后应当是 0，得到 %d", got)
 	}
 }

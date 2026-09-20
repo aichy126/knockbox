@@ -97,7 +97,10 @@ func Router(r *gin.Engine, s *Server) {
 		s.sendLimit = middleware.NewTokenBucket(s.SendQPS, s.SendBurst)
 	}
 
-	// ── 管理页面：服务端直出 HTML，无前端构建步骤 ──────────────
+	// ── 公开页：服务端直出 HTML，不需要 JavaScript ──────────────
+	//
+	// 陌生人会走到的那几页仍然是直出的：接入页、发送说明页，以及它们的错误页。
+	// 换成 SPA 的只有管理界面（/login 与 /admin/*），见 mountSPA。
 	verify := func(raw string) (*models.User, error) { return service.NewSession(s.DAO).Verify(raw) }
 	r.GET("/", s.home)
 	r.GET("/docs", s.docsPage)
@@ -108,7 +111,6 @@ func Router(r *gin.Engine, s *Server) {
 	// 开放注册的两条路由常驻，是否放行由【运行时设置】决定。
 	// 公共模式能在后台开关，而路由只在启动时注册一次：按启动时的配置决定挂不挂的话，
 	// 后台打开公共模式之后，接入页会去轮询一个并不存在的 /join/status。
-	// 关闭时 home 跳登录页、joinStatus 回 404，陌生人依旧开不了账号。
 	r.GET("/join", s.home)
 	r.GET("/join/status", s.joinStatus)
 	// 限流挂在【真正签发配对码】那一步，不挂在路由上：接入页刷新一次就算一次的话，
@@ -116,34 +118,13 @@ func Router(r *gin.Engine, s *Server) {
 	if s.joinLimit == nil {
 		s.joinLimit = middleware.NewRateLimitFunc(s.Settings.RegisterPerHour, time.Hour)
 	}
-	// 语言开关。不要求登录：cookie 只影响渲染语言，换一门语言看不到任何多余的东西，
-	// 而登录页自己也要能切。
-	r.GET("/lang", s.setLang)
 	// 图标。/favicon.ico 是浏览器自己会去要的那一条，即便没有哪一页引用它——
 	// 不给的话每开一页就多一次 404。
 	r.GET("/favicon.ico", s.asset("favicon.png"))
 	r.GET("/favicon.png", s.asset("favicon.png"))
 	r.GET("/apple-touch-icon.png", s.asset("apple-touch-icon.png"))
-	r.GET("/login", s.loginPage)
-	r.GET("/logout", s.logout)
+
 	admin := r.Group("", middleware.AdminAuth(verify, uierr.AdminSessionExpired, s.userText))
-	// 后台里的配对页（能选发给谁）。/pair 留作旧地址，重定向过去。
-	admin.GET("/admin/pair", s.adminPairPage)
-	admin.POST("/admin/pair", s.adminPairIssue)
-	admin.GET("/pair", func(c *gin.Context) { c.Redirect(302, "/admin/pair") })
-	admin.GET("/admin", s.adminDash)
-	admin.GET("/admin/messages", s.adminMessages)
-	admin.GET("/admin/messages/:uid", s.adminMessageDetail)
-	// 频道和设备不再有顶层列表——它们属于成员，从成员详情钻进去
-	admin.GET("/admin/channels/:id", s.adminChannel)
-	admin.POST("/admin/channels/:id/purge", s.adminChannelPurge)
-	admin.GET("/admin/users/:id", s.adminUser)
-	admin.POST("/admin/devices/:id/delete", s.adminDeviceDelete)
-	admin.GET("/admin/users", s.adminUsers)
-	admin.GET("/admin/settings", s.adminSettings)
-	admin.POST("/admin/settings", s.adminSettingsSave)
-	admin.POST("/admin/account/password", s.adminPasswordSave)
-	admin.POST("/admin/users/:id/unlimited", s.adminUserUnlimited)
 
 	// ── 后台自用的 JSON 接口 ──────────────────────────────
 	//
@@ -193,8 +174,8 @@ func Router(r *gin.Engine, s *Server) {
 	// 少了限流，攻击者能在有效期窗口里无限次猜。
 	r.POST("/api/v1/pair", middleware.NewRateLimit(s.PairPerMin, time.Minute).
 		Gin(uierr.PairTooFast, s.userText), s.pair)
-	// 登录同理：单账号服务最怕的就是慢速爆破
-	r.POST("/login", middleware.NewRateLimit(10, time.Minute).Gin(uierr.LoginTooFast, s.userText), s.doLogin)
+	// 登录。单账号服务最怕的就是慢速爆破，所以这条也限流。
+	r.POST("/admin/api/login", middleware.NewRateLimit(10, time.Minute).Gin(uierr.LoginTooFast, s.userText), s.adminAPILogin)
 
 	// ── 客户端侧：设备 token ─────────────────────────────────────
 	app := r.Group("/api/v1", middleware.DeviceAuth(s.DAO))
@@ -213,6 +194,9 @@ func Router(r *gin.Engine, s *Server) {
 	app.POST("/messages/read", s.markRead)
 	app.POST("/messages/delete", s.deleteMessages)
 	app.POST("/messages/:uid/reply", s.reply)
+
+	// 管理界面。放在最后：NoRoute 只在上面每一条都没匹配上时才轮到。
+	mountSPA(r)
 }
 
 func (s *Server) serverInfo(c *gin.Context) {

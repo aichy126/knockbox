@@ -1,20 +1,24 @@
 package web
 
+import _ "embed"
+
+// Tokens 颜色与字号令牌，和 admin/ 里的前端共用同一个文件（tokens.css）。
+//
+//go:embed tokens.css
+var Tokens string
+
 // Style 后台样式。**直接从设计稿 docs/design/knockbox-admin/_style.css 搬过来**，
 // 改动只有三处：画板固定尺寸改自适应、字体换成系统字体栈（中文要能正常显示，
 // 也少一次外部请求）、以及补上实装才需要的那些类（hover、分页、空状态等）。
 //
-// 服务端直出 HTML，没有前端构建步骤——这是个自建工具，不该为了一个管理页
-// 引入 node_modules。
-const Style = `*{box-sizing:border-box}
+// 这份样式给【服务端直出的公开页】：接入页、发送说明页、错误页。它们不需要
+// JavaScript，也不该因为管理界面换了实现而变。管理界面的样式在 admin/src/style.css，
+// 两边共用同一份令牌（tokens.css）。
+var Style = Tokens + `*{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--primary,oklch(0.58 0.19 262));text-decoration:none}
 a:hover{color:color-mix(in oklch,var(--primary,oklch(0.58 0.19 262)) 78%,var(--fg,#000))}
-/* 令牌定义在 :root：登录页和配对页不走 Shell、根节点上没有 .app，
-   令牌挂在 .app 里的话那两页拿到的全是未定义变量——表现为输入框和边框整个消失。 */
-:root{--bg:oklch(1 0 0);--fg:oklch(0.141 0.005 285.823);--card:oklch(1 0 0);--muted:oklch(0.967 0.001 286.375);--muted-fg:oklch(0.552 0.016 285.938);--border:oklch(0.92 0.004 286.32);--primary:oklch(0.58 0.19 262);--primary-fg:oklch(0.985 0 0);--accent-soft:oklch(0.95 0.03 262);--success:oklch(0.63 0.17 148);--success-soft:oklch(0.97 0.03 150);--warning:oklch(0.68 0.16 60);--warning-soft:oklch(0.97 0.03 80);--danger:oklch(0.58 0.22 27);--danger-soft:oklch(0.96 0.03 20);background:var(--bg);color:var(--fg);font-size:14px;line-height:1.45}
 .app{display:flex;min-height:100vh;background:var(--bg);color:var(--fg)}
-:root[data-theme="dark"]{--bg:oklch(0.141 0.005 285.823);--fg:oklch(0.985 0 0);--card:oklch(0.21 0.006 285.885);--muted:oklch(0.274 0.006 286.033);--muted-fg:oklch(0.705 0.015 286.067);--border:oklch(1 0 0 / 12%);--primary:oklch(0.66 0.17 262);--primary-fg:oklch(0.13 0.02 262);--accent-soft:oklch(0.28 0.08 262);--success:oklch(0.8 0.18 150);--success-soft:oklch(0.25 0.05 150);--warning:oklch(0.85 0.16 85);--warning-soft:oklch(0.3 0.06 70);--danger:oklch(0.72 0.18 25);--danger-soft:oklch(0.3 0.08 20)}
 .sidebar{width:240px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--card)}
 .brand{height:56px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--border)}
 .brand-mark{width:28px;height:28px;border-radius:10px;background:var(--primary);color:var(--primary-fg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -108,9 +112,7 @@ tr.tomb td{color:var(--muted-fg)}
 .bigcode{font-family:"JetBrains Mono",Menlo,Consolas,monospace;font-size:30px;font-weight:500;letter-spacing:.14em;line-height:1}
 .pager{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);font-size:12.5px;color:var(--muted-fg)}
 /* ── 这些是稿子里没有、实装才需要的 ────────────────────────── */
-html{color-scheme:light dark}
 .app{margin:0 auto}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:oklch(0.141 0.005 285.823);--fg:oklch(0.985 0 0);--card:oklch(0.21 0.006 285.885);--muted:oklch(0.274 0.006 286.033);--muted-fg:oklch(0.705 0.015 286.067);--border:oklch(1 0 0 / 12%);--primary:oklch(0.66 0.17 262);--primary-fg:oklch(0.13 0.02 262);--accent-soft:oklch(0.28 0.08 262);--success:oklch(0.8 0.18 150);--success-soft:oklch(0.25 0.05 150);--warning:oklch(0.85 0.16 85);--warning-soft:oklch(0.3 0.06 70);--danger:oklch(0.72 0.18 25);--danger-soft:oklch(0.3 0.08 20)}}
 a.item,a.btn{text-decoration:none}
 a.item:hover{background:var(--muted);color:var(--fg)}
 tbody tr:hover{background:var(--muted)}

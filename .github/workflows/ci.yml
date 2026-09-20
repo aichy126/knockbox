@@ -45,6 +45,31 @@ jobs:
       # 发布产物是静态二进制、Docker 镜像是 FROM alpine，都依赖这个前提。
       - run: CGO_ENABLED=0 go build ./...
 
+  admin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: admin/package-lock.json }
+      - run: npm ci
+        working-directory: admin
+      - run: npm run test
+        working-directory: admin
+      - run: npm run build
+        working-directory: admin
+      # 构建产物真的进得了二进制。没有这一步，「embed 了一个空目录」
+      # 在 CI 上和成功长得一模一样。
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod, cache: true }
+      - name: 产物 embed 进去了
+        run: |
+          go build -o /tmp/kb .
+          /tmp/kb serve -c <(sed -e 's|./data/|/tmp/kbdata/|g' -e 's|^address = ":8080"|address = ":18099"|' config.toml.example) &
+          for i in $(seq 1 30); do curl -fsS localhost:18099/health >/dev/null 2>&1 && break; sleep 1; done
+          code=$(curl -s -o /tmp/admin.html -w '%{http_code}' localhost:18099/admin)
+          test "$code" = 200 || { echo "GET /admin -> $code"; cat /tmp/admin.html; exit 1; }
+          grep -q 'type="module"' /tmp/admin.html || { echo "/admin 回的不是构建好的前端"; cat /tmp/admin.html; exit 1; }
+
   docker:
     runs-on: ubuntu-latest
     steps:

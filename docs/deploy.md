@@ -141,9 +141,15 @@ cd knockbox
 make build          # produces ./knockbox
 ```
 
-Go 1.26 or newer. The build is `CGO_ENABLED=0` and must stay that way — the SQLite
-driver is pure Go, which is what makes a static binary and a two-stage container
-image possible.
+Go 1.26 or newer, and Node 20+ for the admin interface (`make build` runs it for you).
+The Go build is `CGO_ENABLED=0` and must stay that way — the SQLite driver is pure Go,
+which is what makes a static binary and a two-stage container image possible.
+
+**The deliverable does not change**: still one binary and one SQLite file. The admin
+interface is built into `admin/dist` and embedded with `go:embed`, so a release binary
+or the Docker image carries it already — `npm` is a cost for contributors, not for you.
+Skipping it still compiles; the admin interface then says it has not been built, and
+everything else works.
 
 ## The images
 

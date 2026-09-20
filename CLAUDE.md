@@ -36,8 +36,9 @@ make run        # 启动服务（= ./knockbox serve -c config.toml）
 main.go → internal/cli/        cobra 子命令，装配依赖（serve.go 是唯一读配置的地方）
           internal/api/        HTTP 处理函数；router.go 是唯一的路由注册处
           internal/api/mcp.go  MCP（Streamable HTTP）接入面，与 /send 同权同路
-          internal/api/web/    服务端直出 HTML，无前端构建步骤
-          internal/api/web/locales/  两门语言的全部文案，加一门语言只加一个文件
+          admin/               管理界面（Vue 3 + Vite），产物 go:embed 进二进制
+          internal/api/web/    公开页的服务端直出 HTML（接入页 / 发送说明页 / 错误页）
+          internal/api/web/locales/  两门语言的全部文案，前后端共用，加一门语言只加一个文件
           internal/middleware/ 三套鉴权 + 限流
           internal/service/    业务编排，事务边界在这一层
           internal/dao/        只做 SQL，不含业务判断
@@ -59,11 +60,16 @@ main.go → internal/cli/        cobra 子命令，装配依赖（serve.go 是�
 
 这些都是**破坏之后不报错、只是悄悄不对**的地方。改到相关代码时先确认自己没有踩到。
 
-**界面上的每一句话都在 `locales/*.json` 里，不在 Go 里。** 公开页的摊在顶层，
-管理界面的在 `admin` 下按页分组（结构体见 `web/i18n_admin.go`）。
+**界面上的每一句话都在 `locales/*.json` 里，不在代码里。** 公开页的摊在顶层，
+管理界面的在 `admin` 下按页分组（Go 侧结构体见 `web/i18n_admin.go`，前端直接读同一份 JSON）。
 往页面里写死一句话不会报错——它在中文下看起来完全正常，因为它本来就是中文。
-`TestAdminPagesHaveNoChineseInEnglish` 拿英文渲染每一页再扫汉字，就是为了让这种事当场红。
-渲染函数拿文案走 `adminView`（`api/admin.go`），不要在函数里自己 `web.T(...)`。
+两个守门员拿英文渲染每一屏再扫汉字：公开页是 `TestPublicPagesHaveNoChineseInEnglish`，
+管理界面是 `admin/test/views.test.js`。两处都做过变异验证（塞一句中文进去，确认会红）。
+
+**前端产物必须在 `go build` 之前构建。** `go:embed all:dist` 在目录存在时照样编得过
+（`admin/dist/.gitkeep` 入库就是为了这个），embed 进去的却是一个空目录——
+镜像能起、健康检查能过、CI 全绿，只有后台是一片空白。Dockerfile 与 `release.yml`
+都各有一个前端构建步骤，动它们之前先想清楚这一条。
 
 **语言的判定顺序是 `?lang=` → cookie → Accept-Language → 英文。**
 cookie 只有管理界面会写（`/lang`），公开页只读不写——陌生人点一次语言开关，

@@ -411,6 +411,10 @@ func (s *Server) adminAPIMessages(c *gin.Context) {
 		ChannelId: c.Query("channel"),
 		Before:    cursor,
 		Limit:     limit + 1,
+		// 【必须带 WithBody】：它同时控制 body、extra 和 reply_*。不带的话
+		// replyable 恒为 false——一个会骗人的字段，界面据此判断要不要画回复区。
+		// 搜索本来就是在正文里搜（LIKE m.body），把命中的那段带回去也是应当的。
+		WithBody: true,
 	})
 	if err != nil {
 		s.adminFail(c, "message search", err)

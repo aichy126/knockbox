@@ -138,8 +138,14 @@ cd knockbox
 make build          # 产出 ./knockbox
 ```
 
-需要 Go 1.26 或更新。编译是 `CGO_ENABLED=0`，而且必须一直是——SQLite 驱动是纯 Go 的，
+需要 Go 1.26 或更新，另外构建管理界面要 Node 20+（`make build` 会自己先跑）。
+Go 这边是 `CGO_ENABLED=0`，而且必须一直是——SQLite 驱动是纯 Go 的，
 静态二进制和两阶段镜像都建立在这件事上。
+
+**交付物没有变**：仍然是一个二进制加一个 SQLite 文件。管理界面构建到 `admin/dist`
+再 `go:embed` 进去，所以 release 的二进制和 Docker 镜像里本来就带着它——
+`npm` 是贡献者的成本，不是使用者的。跳过它照样编得过，只是后台会说它还没构建，
+其余功能一概照常。
 
 ## 镜像
 

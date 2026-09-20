@@ -22,6 +22,7 @@
   "join_open_send": "打开发送页",
   "join_keep_secret": "<b>别把它贴到公开的地方</b>——拿到它就能往你的频道发消息。",
   "join_add_device": "要再加一台设备，去 app 里出码。",
+  "join_qr_alt": "配对二维码",
   "guide_docs_title": "怎么用 %s",
   "guide_docs_lede": "任何能发一条 HTTP 请求的东西，一行命令就能把消息推到你的 iPhone 上 ——家里的自动化、网上的价格监控、你写的小脚本，或者你自己的 AI agent。",
   "guide_channel_lede": "这一页是这个频道专用的，地址里已经带好了你的 token。收藏它 —— 怎么发、发出来长什么样、怎么交代给 AI agent，都在这一页。每条示例旁边都有「发这条」，按一下手机就会真的响，不用先照着抄。",
@@ -102,7 +103,8 @@
     "reply.out_of_range": "请在 %g 到 %g 之间选一个值。",
     "send.too_fast": "发送过于频繁，请降低频率后重试。",
     "session.invalid": "设备的配对已失效，请重新配对。",
-    "setting.bad_value": "%s 的值不合法，没有保存。"
+    "setting.bad_value": "%s 的值不合法，没有保存。",
+    "login.bad": "用户名或密码不正确。"
   },
   "admin": {
     "nav": {
@@ -149,7 +151,8 @@
       "dash": "—",
       "pw_change_fail": "改密码没有成功，密码没有改动。服务器日志里有原因。",
       "no_reason": "(无原因)",
-      "action_fail": "操作没有成功。服务器日志里有原因。"
+      "action_fail": "操作没有成功。服务器日志里有原因。",
+      "cancel": "取消"
     },
     "time": {
       "just_now": "刚刚",
@@ -230,7 +233,9 @@
       "replied": "已回复",
       "expired": "时限已过（%s），没有回复",
       "waiting_till": "等待回复 · 截止 %s",
-      "waiting_open": "等待回复 · 没有设时限"
+      "waiting_open": "等待回复 · 没有设时限",
+      "match_one": "%d 条匹配",
+      "match_count": "%d 条匹配"
     },
     "mute": {
       "always": "一直静音",
@@ -267,8 +272,6 @@
       "empty_all": "还没有成员。点右上角配对一台设备就会建出第一个。",
       "col_login": "最后登录",
       "col_quota": "配额",
-      "pager_one": "第 %d 页 · 共 %d 人",
-      "pager_info": "第 %d 页 · 共 %d 人",
       "note": "扫码接入的人是<b>收件人</b>：没有用户名密码，登录不了这个后台，身份就是设备上那把凭据。第一个管理员在服务器首次启动时自动建好，再加人用命令行 —— <code class=\"code\">knockbox user add &lt;名字&gt;</code>。",
       "unlimited": "豁免配额",
       "unlimited_on": "已豁免 · 点击恢复"
