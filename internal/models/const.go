@@ -37,8 +37,7 @@ const (
 // 回复类型（message.extra 里 reply.type）。
 //
 // 四种都只在 app 内回——通知上不回复，所以这里【没有】「哪些能上通知」的分界。
-// choice 与 text 是这版实现的，multi 与 number 留位：客户端不认识的形态
-// 只提示升级，不假装能回。
+// 客户端不认识的形态只提示升级，不假装能回。
 const (
 	ReplyChoice = "choice"
 	ReplyText   = "text"
