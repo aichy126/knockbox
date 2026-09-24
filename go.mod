@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/aichy126/igo v0.4.4
 	github.com/gin-gonic/gin v1.12.0
-	github.com/mark3labs/mcp-go v1.0.0
+	github.com/mark3labs/mcp-go v1.1.0
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/sideshow/apns2 v0.25.0
 	github.com/spf13/cobra v1.10.2
