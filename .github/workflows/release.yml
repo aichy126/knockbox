@@ -19,7 +19,7 @@ jobs:
         with: { go-version-file: go.mod, cache: true }
       # 管理界面要先构建。goreleaser 只编 Go——不构建的话 go:embed 收进去的是
       # 一个空目录，发出去的二进制后台是一片空白，而这一步照样绿。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm, cache-dependency-path: admin/package-lock.json }
       - run: npm ci
         working-directory: admin
