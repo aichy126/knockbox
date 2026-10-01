@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/aichy126/igo v0.4.4
 	github.com/gin-gonic/gin v1.12.0
-	github.com/mark3labs/mcp-go v1.0.0
+	github.com/mark3labs/mcp-go v1.1.1
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/sideshow/apns2 v0.25.0
 	github.com/spf13/cobra v1.10.2
@@ -14,7 +14,7 @@ require (
 	golang.org/x/image v0.46.0
 	golang.org/x/term v0.46.0
 	rsc.io/qr v0.2.0
-	xorm.io/xorm v1.4.1
+	xorm.io/xorm v1.4.2
 )
 
 require (
