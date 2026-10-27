@@ -18,6 +18,7 @@ import (
 	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/dao"
 	"github.com/aichy126/knockbox/internal/models"
+	"xorm.io/xorm"
 )
 
 // 回调的退避梯度。比推送短得多：发送方多半正卡在一个分支上等这个答案，
@@ -30,12 +31,12 @@ const SignatureHeader = "X-Knockbox-Signature"
 
 // Webhook 消费 reply_hook 队列，把用户的回复投给发送方。
 //
-// ⚠️ **和推送队列一样，同一个数据库上只能跑一个实例**：claim 没有租约，
-// 靠「一个进程只有一条 Run 循环」保证不重复投递。回调是有副作用的请求
-// （对面可能真的去开窗帘），重复投递比重复推送严重得多。
+// 和推送队列一样，同一个库上可以同时跑两个实例：claim 在写事务里给领到的记录上租约，
+// 见 claim。回调是有副作用的请求（对面可能真的去开窗帘），重复投递比重复推送严重得多。
 type Webhook struct {
 	d           *dao.DAO
 	cl          *http.Client
+	timeout     time.Duration
 	maxAttempts int
 	wake        chan struct{}
 	// allowPrivate 允不允许把回调打到私网地址。
@@ -65,7 +66,7 @@ func NewWebhook(d *dao.DAO, cfg WebhookConfig) *Webhook {
 		cfg.AllowPrivate = func() bool { return true }
 	}
 	w := &Webhook{
-		d: d, maxAttempts: cfg.MaxAttempts,
+		d: d, timeout: cfg.Timeout, maxAttempts: cfg.MaxAttempts,
 		wake: make(chan struct{}, 1), allowPrivate: cfg.AllowPrivate,
 	}
 	dialer := &net.Dialer{
@@ -191,10 +192,8 @@ func (w *Webhook) Run(ctx context.Context) {
 func (w *Webhook) drain(ctx context.Context) (int, error) {
 	total := 0
 	for {
-		var hooks []models.ReplyHook
-		if err := w.d.Engine().
-			Where("status IN (?, ?) AND next_at <= ?", models.HookPending, models.HookRetry, time.Now().Unix()).
-			OrderBy("id").Limit(100).Find(&hooks); err != nil {
+		hooks, err := w.claim(100)
+		if err != nil {
 			return total, err
 		}
 		if len(hooks) == 0 {
@@ -206,12 +205,50 @@ func (w *Webhook) drain(ctx context.Context) (int, error) {
 		// 而串行让一个慢端点只拖慢它自己那条，不占住一批 goroutine。
 		for i := range hooks {
 			if ctx.Err() != nil {
+				w.release(hooks[i:])
 				return total, nil
 			}
 			w.deliver(ctx, &hooks[i])
 			total++
 		}
 	}
+}
+
+// release 把领了却没投的回调还回队列。
+//
+// 进程退出（部署时旧容器被停）时这一批可能只投了一半。不还的话剩下的要等租约到期
+// 才会被新实例取走，而发送方多半正卡在一个分支上等这个答案。
+func (w *Webhook) release(hooks []models.ReplyHook) {
+	now := time.Now().Unix()
+	for _, h := range hooks {
+		_, _ = w.d.Engine().Exec("UPDATE reply_hook SET next_at = ? WHERE id = ?", now, h.Id)
+	}
+}
+
+// claim 领走一批到期的回调，做法与 Pusher.claim 相同：同一个写事务里选出来、
+// 把 next_at 推到租约到期时刻，别的进程就取不到。投完之后 deliver 会覆盖 status 与 next_at。
+func (w *Webhook) claim(limit int) ([]models.ReplyHook, error) {
+	var hooks []models.ReplyHook
+	err := w.d.Tx(func(sess *xorm.Session) error {
+		now := time.Now()
+		if err := sess.
+			Where("status IN (?, ?) AND next_at <= ?", models.HookPending, models.HookRetry, now.Unix()).
+			OrderBy("id").Limit(limit).Find(&hooks); err != nil {
+			return err
+		}
+		// 串行投，每条最多等 timeout
+		leaseUntil := now.Add(time.Duration(len(hooks))*w.timeout + leaseMargin).Unix()
+		for _, h := range hooks {
+			if _, err := sess.Exec("UPDATE reply_hook SET next_at = ? WHERE id = ?", leaseUntil, h.Id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return hooks, nil
 }
 
 func (w *Webhook) deliver(ctx context.Context, h *models.ReplyHook) {

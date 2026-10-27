@@ -96,10 +96,11 @@ file is worse than no key: someone will change it and wonder why nothing happens
 **Dependencies.** The build must stay CGO-free. Adding a module needs a reason in the
 PR description; a thirty-line helper is usually better than a new import.
 
-**The pusher runs as a single instance.** `claim` takes rows off `push_log` without a
-lease, so two processes on the same database would push everything twice. If you need
-horizontal scale, that needs a lease column first, and that is a design change worth
-an issue.
+**Both queues take a lease when they claim work.** During a deploy the old and the new
+container briefly share the database, so `claim` (for pushes and for webhooks) selects
+due rows and pushes their `next_retry_at` / `next_at` past a lease, in one write
+transaction. Another process then cannot pick the same rows. Keep both steps in that
+transaction; splitting them brings back double delivery.
 
 ## Adding a language
 

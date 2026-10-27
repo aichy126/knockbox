@@ -27,6 +27,18 @@ func newTestDAO(t *testing.T) (*dao.DAO, string) {
 	return dao.New(e), dir
 }
 
+// otherInstance 在 newTestDAO 的那个库上再开一个独立的 engine，
+// 模拟部署时短暂并存的另一个进程（先起后停）。
+func otherInstance(t *testing.T, dir string) *dao.DAO {
+	t.Helper()
+	e, err := xorm.NewEngine("sqlite3", filepath.Join(dir, "test.db")+"?"+pragmas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+	return dao.New(e)
+}
+
 func mustUser(t *testing.T, d *dao.DAO) int64 {
 	t.Helper()
 	u, err := NewAccount(d).Create("owner", "hunter2hunter2", models.RoleAdmin)
