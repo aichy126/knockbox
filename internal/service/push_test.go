@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -252,6 +253,105 @@ func TestClaimCarriesEveryFieldThePayloadNeeds(t *testing.T) {
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s = %v，期望 %v", tc.field, tc.got, tc.want)
+		}
+	}
+}
+
+// 部署时新旧容器会短暂指向同一个库。一个实例领走的记录，另一个不能再取到——
+// 否则这条消息会被推两遍。领走不是终态，status 仍是 pending。
+func TestClaimLeaseHidesJobFromOtherInstance(t *testing.T) {
+	d, dir := newTestDAO(t)
+	seedPushJob(t, d)
+
+	a := NewPusher(d, nil, nil, PusherConfig{})
+	b := NewPusher(otherInstance(t, dir), nil, nil, PusherConfig{})
+	if jobs, err := a.claim(10); err != nil || len(jobs) != 1 {
+		t.Fatalf("第一个实例应当领到 1 条：jobs=%d err=%v", len(jobs), err)
+	}
+	if jobs, err := b.claim(10); err != nil || len(jobs) != 0 {
+		t.Fatalf("已被领走的记录不该再被另一个实例取到：jobs=%d err=%v", len(jobs), err)
+	}
+	if got := pushStatus(t, d); got != models.PushPending {
+		t.Fatalf("领走不是终态，应当仍是 pending，实际 %d", got)
+	}
+}
+
+// 领了之后进程被杀（没来得及 finish / retry），租约到期后这条必须能被重新领走，不能丢。
+func TestClaimRetakesJobAfterLeaseExpires(t *testing.T) {
+	d, dir := newTestDAO(t)
+	seedPushJob(t, d)
+
+	if jobs, err := NewPusher(d, nil, nil, PusherConfig{}).claim(10); err != nil || len(jobs) != 1 {
+		t.Fatalf("应当领到 1 条：jobs=%d err=%v", len(jobs), err)
+	}
+	// 模拟租约到期
+	if _, err := d.Engine().Exec("UPDATE push_log SET next_retry_at = ?", time.Now().Unix()-1); err != nil {
+		t.Fatal(err)
+	}
+	if jobs, err := NewPusher(otherInstance(t, dir), nil, nil, PusherConfig{}).claim(10); err != nil || len(jobs) != 1 {
+		t.Fatalf("租约到期后应当能被重新领走：jobs=%d err=%v", len(jobs), err)
+	}
+}
+
+// 两个实例同时抢同一批：每条恰好被领一次，不重不漏。
+func TestConcurrentClaimsNeverOverlap(t *testing.T) {
+	d, dir := newTestDAO(t)
+	seedPushJob(t, d)
+	// 再造 99 条指向同一条消息、同一台设备的待推记录
+	var first models.PushLog
+	if _, err := d.Engine().Get(&first); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 99; i++ {
+		if _, err := d.Engine().Insert(&models.PushLog{
+			MessageId: first.MessageId, DeviceId: first.DeviceId,
+			Status: models.PushPending, Ctime: first.Ctime, Utime: first.Utime,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pushers := []*Pusher{
+		NewPusher(d, nil, nil, PusherConfig{}),
+		NewPusher(otherInstance(t, dir), nil, nil, PusherConfig{}),
+	}
+	var mu sync.Mutex
+	seen := map[int64]int{}
+	var wg sync.WaitGroup
+	for _, p := range pushers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// 100 条、每次 7 条，正常 15 轮内就领完。领不完说明同一批在被反复领到。
+			for round := 0; ; round++ {
+				if round > 50 {
+					t.Error("领取停不下来：已领走的记录还在被反复领到")
+					return
+				}
+				jobs, err := p.claim(7)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if len(jobs) == 0 {
+					return
+				}
+				mu.Lock()
+				for _, j := range jobs {
+					seen[j.logID]++
+				}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if len(seen) != 100 {
+		t.Fatalf("应当恰好领走 100 条，实际 %d 条", len(seen))
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("记录 %d 被领了 %d 次", id, n)
 		}
 	}
 }
