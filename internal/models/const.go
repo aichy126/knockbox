@@ -43,6 +43,8 @@ const (
 	ReplyText   = "text"
 	ReplyMulti  = "multi"
 	ReplyNumber = "number"
+	// ReplyForm 组合回复：fields 里挂几个上面那四种控件。只出现在 extra 里，发送方不用写它。
+	ReplyForm = "form"
 )
 
 // reply_hook.status。与 push_log.status 同一套语义，值也刻意对齐，

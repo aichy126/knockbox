@@ -181,6 +181,9 @@ curl -H 'Content-Type: application/json' -d '{
 | `timeout` | 全部 | 多少秒后不能再回。0 或不填表示一直可以回，最长 30 天。 |
 | `min` `max` `step` | `number` | 滑块的范围，`min` 可以是 0。 |
 | `unit` | `number` | 只用于显示（`°C`、`%`、`分钟`），服务端不解释它。 |
+| `placeholder` | `text` | 输入框里的提示，最长 60 字。 |
+| `required` | 全部 | 默认 `true`。写 `false` 就能空着交——对 `text` 来说，空着交就是「没什么要补充的」。 |
+| `fields` | — | 一次问几件事。见[一次问几件事](#一次问几件事)。 |
 
 `timeout` 不填就一直可以回，只有「不回就会自动发生别的事」才需要设它。
 agent 问一句等回答那种没有默认分支，设了反而会让答案白白作废。
@@ -190,10 +193,41 @@ agent 问一句等回答那种没有默认分支，设了反而会让答案白�
 人回完之后，你的地址收到：
 
 ```json
-{"uid":"01J…","channel":"…","title":"窗帘 30 秒后自动打开","reply":"不要打开","replied_at":1726000000}
+{"uid":"01J…","channel":"…","title":"窗帘 30 秒后自动打开","reply":"不要打开","answers":{"reply":"不要打开"},"replied_at":1726000000}
 ```
 
 `reply` 的类型随形态变：`multi` 是字符串数组，`number` 是数字，其余是字符串。
+`answers` 里用 `"reply"` 这个键放同一个值——同时要处理[一次问几件事](#一次问几件事)的地址，可以只认 `answers`。
+
+### 一次问几件事
+
+`fields` 让一次答复里有几个控件、一起提交。最常见的是「点一个选项 + 选填一句备注」：
+
+```bash
+curl -H 'Content-Type: application/json' -d '{
+  "title": "部署到生产环境？",
+  "reply": {
+    "fields": [
+      {"id": "action", "type": "choice", "options": ["部署", "暂缓", "回滚"]},
+      {"id": "note", "type": "text", "placeholder": "要补充什么吗？", "required": false}
+    ],
+    "webhook": "https://ci.example.com/knockbox/reply"
+  }
+}' https://push.example.com/api/v1/send/<token>
+```
+
+每个控件的字段和单个 `reply` 一样（`type`、`options`、`min`/`max`/`step`/`unit`、`placeholder`、`required`），
+另加一个 `id`：1–32 个字符，只能是 `a-z`、`0-9`、`_`，同一条消息里不能重复。最多 10 个；三个以内读起来还像「回一下」。
+用了 `fields`，`type`、`options` 这些都写在各个控件上，`reply` 上只留 `timeout` 和 `webhook`。
+
+回调里是按 `id` 排的 `answers`，没有 `reply`：
+
+```json
+{"uid":"01J…","channel":"…","title":"部署到生产环境？","answers":{"action":"暂缓","note":"等测试确认"},"replied_at":1726000000}
+```
+
+选填的控件没填，`answers` 里**没有这个键**，而不是 `""`。只有一个 `choice` 时点一下就交；其余情况有一颗「提交」按钮。
+回答需要 app 1.2 及以上——更早的版本会显示这条消息，并提示更新后再回复。
 
 一条消息只回一次，先到先得；多台设备之间靠同步看到同一个答案。
 答复**不会**从发送接口回来——那条连接在消息存下的那一刻就结束了，而人可能几分钟后才看手机。

@@ -37,7 +37,7 @@ func TestWebhookDeliversSignedPayload(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = srv.URL
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -81,7 +81,7 @@ func TestWebhookRetriesThenGivesUp(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = srv.URL
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +132,7 @@ func TestWebhookRefusesPrivateAddressInPublicMode(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = srv.URL // httptest 一定在 127.0.0.1
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -169,7 +169,7 @@ func TestWebhookAllowsPrivateAddressWhenSelfHosted(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = srv.URL
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 	w := NewWebhook(d, WebhookConfig{AllowPrivate: func() bool { return true }})
@@ -201,7 +201,7 @@ func TestWebhookDoesNotFollowRedirects(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = front.URL
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 	w := NewWebhook(d, WebhookConfig{AllowPrivate: func() bool { return true }})
@@ -274,7 +274,7 @@ func TestWebhookTimesOut(t *testing.T) {
 	spec := choiceSpec()
 	spec.Webhook = srv.URL
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 	w := NewWebhook(d, WebhookConfig{
@@ -297,7 +297,7 @@ func pendingHook(t *testing.T, d *dao.DAO) {
 	spec := choiceSpec()
 	spec.Webhook = "http://127.0.0.1:1/hook"
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Fatal(err)
 	}
 }

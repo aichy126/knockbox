@@ -143,6 +143,39 @@ func newMCPServer(s *Server) *server.MCPServer {
 						"description": "For type=number: up to 8 characters shown after the number " +
 							"(°C, %, minutes). Display only.",
 					},
+					"placeholder": map[string]any{
+						"type":        "string",
+						"description": "For type=text: up to 60 characters of hint text shown in the empty field.",
+					},
+					"required": map[string]any{
+						"type": "boolean",
+						"description": "Defaults to true. Set false to let them send without answering " +
+							"(an empty text reply means \"nothing to add\").",
+					},
+					"fields": map[string]any{
+						"type": "array",
+						"description": "Ask several things in one reply, sent together: 1-10 fields, each " +
+							"one of the types above with its own id (a-z, 0-9, _). Use it instead of " +
+							"type/options, e.g. a choice plus an optional text note. Fewer is better; " +
+							"three or less still reads like a quick reply.",
+						"items": map[string]any{
+							"type":     "object",
+							"required": []string{"id", "type"},
+							"properties": map[string]any{
+								"id": map[string]any{"type": "string",
+									"description": "Key of this answer in the callback's answers object."},
+								"type": map[string]any{"type": "string", "enum": []string{models.ReplyChoice,
+									models.ReplyMulti, models.ReplyNumber, models.ReplyText}},
+								"options":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+								"min":         map[string]any{"type": "number"},
+								"max":         map[string]any{"type": "number"},
+								"step":        map[string]any{"type": "number"},
+								"unit":        map[string]any{"type": "string"},
+								"placeholder": map[string]any{"type": "string"},
+								"required":    map[string]any{"type": "boolean", "description": "Defaults to true."},
+							},
+						},
+					},
 					"timeout": map[string]any{
 						"type": "integer",
 						"description": "Seconds until the answer is no longer accepted. Omit for no limit. " +
@@ -151,9 +184,11 @@ func newMCPServer(s *Server) *server.MCPServer {
 					"webhook": map[string]any{
 						"type": "string",
 						"description": "Required. The URL the answer is POSTed to, as " +
-							"{uid, channel, title, reply, replied_at}, signed with " +
+							"{uid, channel, title, reply, answers, replied_at}, signed with " +
 							"X-Knockbox-Signature: sha256=HMAC-SHA256(body, channel token). " +
-							"reply is a string, an array of strings for multi, a number for number.",
+							"answers maps each field id to its answer (a string, an array of strings for " +
+							"multi, a number for number); an optional field left empty is absent. " +
+							"Without fields, reply carries the single answer and answers has it under \"reply\".",
 					},
 				})),
 		),

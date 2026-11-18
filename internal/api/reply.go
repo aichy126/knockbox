@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -19,12 +20,14 @@ import (
 func (s *Server) reply(c *gin.Context) {
 	var b struct {
 		Reply string `json:"reply"`
+		// 组合回复：控件 id → 答案。单控件写法不带它。
+		Answers map[string]json.RawMessage `json:"answers"`
 	}
 	if err := c.ShouldBindJSON(&b); err != nil {
 		res.Rfail(c, "cannot parse the request: "+err.Error())
 		return
 	}
-	out, err := service.NewReply(s.DAO).Submit(middleware.UserID(c), c.Param("uid"), b.Reply)
+	out, err := service.NewReply(s.DAO).Submit(middleware.UserID(c), c.Param("uid"), b.Reply, b.Answers)
 	if err != nil {
 		// 已经回过了不是错误，是一个客户端必须知道结果的状态：
 		// 另一台设备回的，这台要把界面切成「已回复 · X」而不是弹一句失败。

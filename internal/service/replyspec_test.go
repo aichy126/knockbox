@@ -113,7 +113,7 @@ func TestReplySpecTrimsOptions(t *testing.T) {
 		Webhook: "https://x.test/h",
 	}
 	uid := replyable(t, d, ch, spec)
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开", nil); err != nil {
 		t.Errorf("去掉空白后的选项应当能回: %v", err)
 	}
 }

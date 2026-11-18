@@ -25,7 +25,16 @@ type replyView struct {
 	Max  *float64 `json:"max,omitempty"`
 	Step *float64 `json:"step,omitempty"`
 	Unit string   `json:"unit,omitempty"`
+	// 只对 type=text 有意义。
+	Placeholder string `json:"placeholder,omitempty"`
+	// 能不能空着交；不写 = 必须作答。
+	Required *bool `json:"required,omitempty"`
+	// type=form 时的那组控件。控件规格里没有任何发送方的内部信息，原样下发。
+	Fields []ReplyField `json:"fields,omitempty"`
 }
+
+// optional 单控件写法允许空着交。
+func (v *replyView) optional() bool { return v.Required != nil && !*v.Required }
 
 func encodeExtra(in SendInput) (string, error) {
 	e := extra{Link: in.Link, Copy: in.Copy, Items: in.Items, Actions: in.Actions, File: in.File}
@@ -33,6 +42,7 @@ func encodeExtra(in SendInput) (string, error) {
 		e.Reply = &replyView{
 			Type: in.Reply.Type, Options: in.Reply.Options,
 			Min: in.Reply.Min, Max: in.Reply.Max, Step: in.Reply.Step, Unit: in.Reply.Unit,
+			Placeholder: in.Reply.Placeholder, Required: in.Reply.Required, Fields: in.Reply.Fields,
 		}
 	}
 	if e.Link == "" && e.Copy == "" && len(e.Items) == 0 && len(e.Actions) == 0 &&

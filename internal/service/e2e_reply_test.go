@@ -45,7 +45,7 @@ func TestEndToEndCurtainScenario(t *testing.T) {
 	}
 
 	// 2. 手机上点「不要打开」
-	out, err := NewReply(d).Submit(ch.UserId, res.UID, "不要打开")
+	out, err := NewReply(d).Submit(ch.UserId, res.UID, "不要打开", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestEndToEndCurtainScenario(t *testing.T) {
 	}
 
 	// 4. 手机上再点一次「打开」——必须落空，而且要拿到已有的答案
-	_, err = NewReply(d).Submit(ch.UserId, res.UID, "打开")
+	_, err = NewReply(d).Submit(ch.UserId, res.UID, "打开", nil)
 	if err == nil {
 		t.Fatal("同一条消息被回了两次")
 	}
