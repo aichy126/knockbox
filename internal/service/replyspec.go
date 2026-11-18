@@ -48,7 +48,10 @@ type ReplySpec struct {
 //
 // 字段和单控件写法一一对应，多一个 ID：回调里按它把答案对回去。
 type ReplyField struct {
-	ID          string   `json:"id"`
+	ID string `json:"id"`
+	// Label 控件上方那一行字，告诉人这一项问的是什么。只有一个控件时可以省；
+	// 几个控件放在一起时没有它，两个滑块就分不清哪个是哪个。
+	Label       string   `json:"label,omitempty"`
 	Type        string   `json:"type"`
 	Options     []string `json:"options,omitempty"`
 	Min         *float64 `json:"min,omitempty"`
@@ -75,6 +78,7 @@ const (
 	replyMaxFields      = 10
 	replyMaxFieldIDLen  = 32
 	replyMaxPlaceholder = 60
+	replyMaxLabel       = 60
 	// 时限上限 30 天。再长就该由发送方自己记着这件事，而不是让一条通知挂在那里。
 	replyMaxTimeout = 30 * 24 * 3600
 )
@@ -222,6 +226,10 @@ func (r *ReplySpec) validateFields() error {
 		f.ID = strings.TrimSpace(f.ID)
 		if !validFieldID(f.ID) {
 			return fmt.Errorf("%s.id must be 1-%d characters of a-z, 0-9 and _; the callback keys each answer by it", at, replyMaxFieldIDLen)
+		}
+		f.Label = strings.TrimSpace(f.Label)
+		if len([]rune(f.Label)) > replyMaxLabel {
+			return fmt.Errorf("%s.label is at most %d characters", at, replyMaxLabel)
 		}
 		if seen[f.ID] {
 			return fmt.Errorf("reply.fields uses the id %q twice", f.ID)
