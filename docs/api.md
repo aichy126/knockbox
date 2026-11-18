@@ -230,8 +230,8 @@ curl -H 'Content-Type: application/json' -d '{
   "title": "Deploy to prod?",
   "reply": {
     "fields": [
-      {"id": "action", "type": "choice", "options": ["Deploy", "Hold", "Rollback"]},
-      {"id": "note", "type": "text", "placeholder": "Anything to note?", "required": false}
+      {"id": "action", "label": "Go ahead?", "type": "choice", "options": ["Deploy", "Hold", "Rollback"]},
+      {"id": "note", "label": "Note", "type": "text", "placeholder": "Anything to note?", "required": false}
     ],
     "webhook": "https://ci.example.com/knockbox/reply"
   }
@@ -239,7 +239,8 @@ curl -H 'Content-Type: application/json' -d '{
 ```
 
 Each field takes the same keys as a single `reply` (`type`, `options`, `min`/`max`/`step`/`unit`,
-`placeholder`, `required`) plus an `id`: 1–32 characters of `a-z`, `0-9` and `_`, unique within
+`placeholder`, `required`), an optional `label` — the question shown above it, up to 60 characters;
+give every field one when there is more than one — and an `id`: 1–32 characters of `a-z`, `0-9` and `_`, unique within
 the message. Up to 10 fields; three or fewer still reads like a quick reply. With `fields`,
 put `type`, `options` and the rest on each field — only `timeout` and `webhook` stay on `reply`.
 

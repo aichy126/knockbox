@@ -19,8 +19,8 @@ func f64(v float64) *float64 { return &v }
 func formSpec() *ReplySpec {
 	return &ReplySpec{
 		Fields: []ReplyField{
-			{ID: "action", Type: models.ReplyChoice, Options: []string{"部署", "暂缓", "回滚"}},
-			{ID: "note", Type: models.ReplyText, Placeholder: "要补充什么吗？", Required: no()},
+			{ID: "action", Label: "要部署吗？", Type: models.ReplyChoice, Options: []string{"部署", "暂缓", "回滚"}},
+			{ID: "note", Label: "备注", Type: models.ReplyText, Placeholder: "要补充什么吗？", Required: no()},
 		},
 		Webhook: "https://home.example.com/hook",
 	}
@@ -72,6 +72,7 @@ func TestReplyFieldsSpecValidation(t *testing.T) {
 		{"顶层 options 与 fields 同用", ReplySpec{Options: []string{"a", "b"}, Fields: []ReplyField{choice}, Webhook: hook}, "go on each field"},
 		{"控件里的错误指明是第几个", ReplySpec{Fields: []ReplyField{choice, {ID: "b", Type: models.ReplyChoice, Options: []string{"只有一个"}}}, Webhook: hook}, "reply.fields[1].options"},
 		{"placeholder 只给 text", ReplySpec{Fields: []ReplyField{{ID: "a", Type: models.ReplyChoice, Options: []string{"是", "否"}, Placeholder: "x"}}, Webhook: hook}, "only for type=text"},
+		{"label 过长", ReplySpec{Fields: []ReplyField{{ID: "a", Label: strings.Repeat("问", 61), Type: models.ReplyText}}, Webhook: hook}, ".label is at most"},
 		{"正常的一组", *formSpec(), ""},
 	}
 	for _, c := range cases {

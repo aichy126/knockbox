@@ -164,6 +164,9 @@ func newMCPServer(s *Server) *server.MCPServer {
 							"properties": map[string]any{
 								"id": map[string]any{"type": "string",
 									"description": "Key of this answer in the callback's answers object."},
+								"label": map[string]any{"type": "string",
+									"description": "The question this field asks, shown above it, up to 60 characters. " +
+										"Give every field one when there is more than one."},
 								"type": map[string]any{"type": "string", "enum": []string{models.ReplyChoice,
 									models.ReplyMulti, models.ReplyNumber, models.ReplyText}},
 								"options":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},

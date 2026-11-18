@@ -208,8 +208,8 @@ curl -H 'Content-Type: application/json' -d '{
   "title": "部署到生产环境？",
   "reply": {
     "fields": [
-      {"id": "action", "type": "choice", "options": ["部署", "暂缓", "回滚"]},
-      {"id": "note", "type": "text", "placeholder": "要补充什么吗？", "required": false}
+      {"id": "action", "label": "要部署吗？", "type": "choice", "options": ["部署", "暂缓", "回滚"]},
+      {"id": "note", "label": "备注", "type": "text", "placeholder": "要补充什么吗？", "required": false}
     ],
     "webhook": "https://ci.example.com/knockbox/reply"
   }
@@ -217,7 +217,7 @@ curl -H 'Content-Type: application/json' -d '{
 ```
 
 每个控件的字段和单个 `reply` 一样（`type`、`options`、`min`/`max`/`step`/`unit`、`placeholder`、`required`），
-另加一个 `id`：1–32 个字符，只能是 `a-z`、`0-9`、`_`，同一条消息里不能重复。最多 10 个；三个以内读起来还像「回一下」。
+另有可选的 `label`（显示在控件上方的那句问题，最长 60 字；不止一个控件时每个都给一个），以及 `id`：1–32 个字符，只能是 `a-z`、`0-9`、`_`，同一条消息里不能重复。最多 10 个；三个以内读起来还像「回一下」。
 用了 `fields`，`type`、`options` 这些都写在各个控件上，`reply` 上只留 `timeout` 和 `webhook`。
 
 回调里是按 `id` 排的 `answers`，没有 `reply`：
