@@ -8,6 +8,7 @@ import (
 	"github.com/aichy126/igo/log"
 	"github.com/aichy126/knockbox/internal/dao"
 	"github.com/aichy126/knockbox/internal/models"
+	"xorm.io/xorm"
 )
 
 // GC 保留策略与孤儿附件回收。
@@ -143,18 +144,43 @@ func (g *GC) purgeUser(uid, cutoff int64) (int, int64) {
 	// 附件引用先减，再删消息：顺序反了就找不到该减哪一个了。
 	// 与删除、清空走同一条路，都认 message.file_id 这一个来源；
 	// 各自去解析 extra 里的 JSON 会让三条路依赖三个字段，任一写入端漏填即静默失效。
-	_, _ = g.d.Engine().Exec(`
-		UPDATE file SET ref_count = MAX(ref_count - 1, 0) WHERE id IN (
-			SELECT file_id FROM message
-			WHERE user_id=? AND created_at<? AND file_id <> 0)`, uid, cutoff)
-
-	res, err := g.d.Engine().Exec(
-		"DELETE FROM message WHERE user_id=? AND created_at<?", uid, cutoff)
+	//
+	// 删完要把受影响频道的 msg_count 重算一遍，和清空频道同一个做法：
+	// 这里按成员删，会跨这个人名下的每个频道，漏了的话计数永久偏大，之后没有路径会把它算回来。
+	// 三步放进一个事务，中途失败不会留下「引用减了、消息还在」或「消息删了、计数没变」。
+	var n int64
+	err := g.d.Tx(func(sess *xorm.Session) error {
+		var chans []string
+		if err := sess.SQL(
+			"SELECT DISTINCT channel_id FROM message WHERE user_id=? AND created_at<?",
+			uid, cutoff).Find(&chans); err != nil {
+			return err
+		}
+		if _, err := sess.Exec(`
+			UPDATE file SET ref_count = MAX(ref_count - 1, 0) WHERE id IN (
+				SELECT file_id FROM message
+				WHERE user_id=? AND created_at<? AND file_id <> 0)`, uid, cutoff); err != nil {
+			return err
+		}
+		res, err := sess.Exec("DELETE FROM message WHERE user_id=? AND created_at<?", uid, cutoff)
+		if err != nil {
+			return err
+		}
+		n, _ = res.RowsAffected()
+		now := time.Now().Unix()
+		for _, ch := range chans {
+			if _, err := sess.Exec(`UPDATE channel SET updated_at = ?, msg_count =
+				(SELECT COUNT(*) FROM message WHERE channel_id = ? AND deleted_at = 0) WHERE id = ?`,
+				now, ch, ch); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		log.Warn("GC: deleting messages failed", log.Any("user", uid), log.Any("error", err.Error()))
 		return 0, 0
 	}
-	n, _ := res.RowsAffected()
 	// 投递记录、水位线和抹除由 pruneMessages 在所有成员处理完之后统一做一次。
 	return int(n), maxRev
 }

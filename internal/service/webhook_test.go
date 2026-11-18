@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aichy126/knockbox/internal/dao"
 	"github.com/aichy126/knockbox/internal/models"
 )
 
@@ -286,5 +287,48 @@ func TestWebhookTimesOut(t *testing.T) {
 	}
 	if el := time.Since(start); el > time.Second {
 		t.Errorf("应在超时时间内返回，实际耗时 %v", el)
+	}
+}
+
+// pendingHook 造一条待投的回调。地址不会真的被请求——这里只测领取。
+func pendingHook(t *testing.T, d *dao.DAO) {
+	t.Helper()
+	ch := fixture(t, d, 1, false)
+	spec := choiceSpec()
+	spec.Webhook = "http://127.0.0.1:1/hook"
+	uid := replyable(t, d, ch, spec)
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "打开"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 部署时新旧容器会短暂指向同一个库。一个实例领走的回调，另一个不能再取到——
+// 回调有副作用，投两遍就是对面真的开了两次窗帘。
+func TestWebhookClaimLeaseHidesHookFromOtherInstance(t *testing.T) {
+	d, dir := newTestDAO(t)
+	pendingHook(t, d)
+
+	a := NewWebhook(d, WebhookConfig{})
+	b := NewWebhook(otherInstance(t, dir), WebhookConfig{})
+	if hooks, err := a.claim(10); err != nil || len(hooks) != 1 {
+		t.Fatalf("第一个实例应当领到 1 条：hooks=%d err=%v", len(hooks), err)
+	}
+	if hooks, err := b.claim(10); err != nil || len(hooks) != 0 {
+		t.Fatalf("已被领走的回调不该再被另一个实例取到：hooks=%d err=%v", len(hooks), err)
+	}
+}
+
+// 旧容器被停时手上领了没投的，要当场还回队列：新实例下一轮就能取到，不必等租约到期。
+func TestWebhookReleasesUnsentHooksOnShutdown(t *testing.T) {
+	d, dir := newTestDAO(t)
+	pendingHook(t, d)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // 领到之后、投第一条之前就收到了退出信号
+	if n, err := NewWebhook(d, WebhookConfig{}).drain(ctx); err != nil || n != 0 {
+		t.Fatalf("退出中不该投出任何回调：n=%d err=%v", n, err)
+	}
+	if hooks, err := NewWebhook(otherInstance(t, dir), WebhookConfig{}).claim(10); err != nil || len(hooks) != 1 {
+		t.Fatalf("没投的回调应当已还回队列：hooks=%d err=%v", len(hooks), err)
 	}
 }
