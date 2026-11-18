@@ -199,6 +199,9 @@ curl -H 'Content-Type: application/json' -d '{
 | `timeout` | all | Seconds until the message stops being answerable. 0 or omitted means no limit; maximum 30 days. |
 | `min`, `max`, `step` | `number` | Range of the slider. `min` may be 0. |
 | `unit` | `number` | Display only — `°C`, `%`, `min`. The server never interprets it. |
+| `placeholder` | `text` | Hint shown in the empty field, up to 60 characters. |
+| `required` | all | Defaults to `true`. With `false` the answer may be left empty — for `text`, an empty answer means "nothing to add". |
+| `fields` | — | Several questions in one reply. See [Several questions in one reply](#several-questions-in-one-reply). |
 
 Leave `timeout` out unless something happens by itself when the time is up. An agent
 asking a question and waiting has no default branch; a limit there only throws the
@@ -210,10 +213,45 @@ send time — someone will have tapped that button for nothing.
 Once they answer, your endpoint receives:
 
 ```json
-{"uid":"01J…","channel":"…","title":"Curtains open in 30 seconds","reply":"Keep closed","replied_at":1726000000}
+{"uid":"01J…","channel":"…","title":"Curtains open in 30 seconds","reply":"Keep closed","answers":{"reply":"Keep closed"},"replied_at":1726000000}
 ```
 
 `reply` is a string, an array of strings for `multi`, and a number for `number`.
+`answers` carries the same value under the key `"reply"`, so an endpoint that also
+handles [several questions](#several-questions-in-one-reply) can read only `answers`.
+
+### Several questions in one reply
+
+`fields` puts several controls in one reply, submitted together — typically a choice
+plus an optional note:
+
+```bash
+curl -H 'Content-Type: application/json' -d '{
+  "title": "Deploy to prod?",
+  "reply": {
+    "fields": [
+      {"id": "action", "type": "choice", "options": ["Deploy", "Hold", "Rollback"]},
+      {"id": "note", "type": "text", "placeholder": "Anything to note?", "required": false}
+    ],
+    "webhook": "https://ci.example.com/knockbox/reply"
+  }
+}' https://push.example.com/api/v1/send/<token>
+```
+
+Each field takes the same keys as a single `reply` (`type`, `options`, `min`/`max`/`step`/`unit`,
+`placeholder`, `required`) plus an `id`: 1–32 characters of `a-z`, `0-9` and `_`, unique within
+the message. Up to 10 fields; three or fewer still reads like a quick reply. With `fields`,
+put `type`, `options` and the rest on each field — only `timeout` and `webhook` stay on `reply`.
+
+The callback has `answers` keyed by `id`, and no `reply`:
+
+```json
+{"uid":"01J…","channel":"…","title":"Deploy to prod?","answers":{"action":"Hold","note":"waiting on QA sign-off"},"replied_at":1726000000}
+```
+
+An optional field left empty is **absent** from `answers`, not `""`. A lone `choice` is
+answered with one tap; any other reply shows a Submit button. Answering needs app 1.2 or
+later — earlier versions show the message with a note to update.
 
 A message is answered once, first answer wins; other devices see that same answer
 through sync. The answer does **not** come back on the send connection — that one ends

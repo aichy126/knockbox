@@ -33,7 +33,34 @@ type ReplySpec struct {
 	Step *float64 `json:"step,omitempty"`
 	// Unit 单位，只用于显示（°C / % / 分钟）。服务端不解释它。
 	Unit string `json:"unit,omitempty"`
+	// Placeholder 输入框里的提示，只对 type=text 有意义。
+	Placeholder string `json:"placeholder,omitempty"`
+	// Required 能不能空着交。不写 = 必须作答，和这个字段出现之前的行为一致。
+	// 用指针分得出「没写」和「写了 false」。
+	Required *bool `json:"required,omitempty"`
+
+	// Fields 组合回复：一条消息挂几个控件，一次提交。每个控件就是上面四种之一。
+	// 给了它，顶层就只剩 timeout 和 webhook 有意义，type 记成 form。
+	Fields []ReplyField `json:"fields,omitempty"`
 }
+
+// ReplyField 组合回复里的一个控件。
+//
+// 字段和单控件写法一一对应，多一个 ID：回调里按它把答案对回去。
+type ReplyField struct {
+	ID          string   `json:"id"`
+	Type        string   `json:"type"`
+	Options     []string `json:"options,omitempty"`
+	Min         *float64 `json:"min,omitempty"`
+	Max         *float64 `json:"max,omitempty"`
+	Step        *float64 `json:"step,omitempty"`
+	Unit        string   `json:"unit,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
+	Required    *bool    `json:"required,omitempty"`
+}
+
+// optional 这个控件允许空着交。
+func (f *ReplyField) optional() bool { return f.Required != nil && !*f.Required }
 
 // 选项数量上限。
 //
@@ -43,6 +70,11 @@ type ReplySpec struct {
 const (
 	replyMaxOptions   = 10
 	replyMaxOptionLen = 40
+	// 组合回复最多几个控件。回复在 app 里一整屏完成、能滚动，所以卡的是「一屏表单还填得完」；
+	// 与选项上限取同一个数，好记。
+	replyMaxFields      = 10
+	replyMaxFieldIDLen  = 32
+	replyMaxPlaceholder = 60
 	// 时限上限 30 天。再长就该由发送方自己记着这件事，而不是让一条通知挂在那里。
 	replyMaxTimeout = 30 * 24 * 3600
 )
@@ -52,73 +84,18 @@ const (
 // 报错都写成「哪里不对 + 该怎么改」：这些错误只有发送方看得到，
 // 而它多半是一段脚本，人看到的是脚本打出来的这一行。
 func (r *ReplySpec) validate() error {
-	r.Type = strings.TrimSpace(r.Type)
-	if r.Type == "" {
-		// 给了选项却没写 type 是最常见的手误，替他补上比报错有用。
-		if len(r.Options) > 0 {
-			r.Type = models.ReplyChoice
-		} else {
-			r.Type = models.ReplyText
+	if len(r.Fields) > 0 {
+		if err := r.validateFields(); err != nil {
+			return err
 		}
-	}
-	switch r.Type {
-	case models.ReplyChoice, models.ReplyMulti:
-		// 多选和单选的选项规则完全一样，差别只在用户能勾几个。
-		if len(r.Options) < 2 {
-			return errors.New("reply.options needs at least two entries: a question with one option is not a question")
+	} else {
+		// 单控件写法：借 ReplyField 的校验，校完把规整过的值写回顶层。
+		f := ReplyField{Type: r.Type, Options: r.Options, Min: r.Min, Max: r.Max, Step: r.Step,
+			Unit: r.Unit, Placeholder: r.Placeholder, Required: r.Required}
+		if err := f.validate("reply"); err != nil {
+			return err
 		}
-		if len(r.Options) > replyMaxOptions {
-			return fmt.Errorf("reply.options takes at most %d entries", replyMaxOptions)
-		}
-		seen := make(map[string]bool, len(r.Options))
-		for i, o := range r.Options {
-			o = strings.TrimSpace(o)
-			if o == "" {
-				return errors.New("reply.options cannot contain an empty entry")
-			}
-			if len([]rune(o)) > replyMaxOptionLen {
-				return fmt.Errorf("each entry in reply.options is at most %d characters", replyMaxOptionLen)
-			}
-			// 两个一样的选项在界面上无法区分，而回调只回文本，
-			// 发送方也分不出用户点的是哪一个。
-			if seen[o] {
-				return fmt.Errorf("reply.options contains %q twice", o)
-			}
-			seen[o] = true
-			r.Options[i] = o
-		}
-	case models.ReplyNumber:
-		if len(r.Options) > 0 {
-			return errors.New("type=number does not take reply.options; it takes a numeric range")
-		}
-		if r.Min == nil || r.Max == nil {
-			return errors.New("type=number requires both reply.min and reply.max")
-		}
-		if *r.Min >= *r.Max {
-			return fmt.Errorf("reply.min (%g) must be less than reply.max (%g)", *r.Min, *r.Max)
-		}
-		if r.Step == nil {
-			// 不给就按 1：整数是最常见的情形，而 0 或负数会让「落到网格上」这步除以零。
-			one := 1.0
-			r.Step = &one
-		}
-		if *r.Step <= 0 {
-			return errors.New("reply.step must be greater than 0")
-		}
-		if *r.Step > *r.Max-*r.Min {
-			return fmt.Errorf("reply.step (%g) is wider than the whole range, leaving only one value to pick", *r.Step)
-		}
-		if len([]rune(r.Unit)) > 8 {
-			return errors.New("reply.unit is at most 8 characters; it is the unit shown after the number")
-		}
-		r.Unit = strings.TrimSpace(r.Unit)
-	case models.ReplyText:
-		// 文本回复没有选项。带了多半是把 type 写错了，直接说出来。
-		if len(r.Options) > 0 {
-			return errors.New("type=text does not take reply.options; use type=choice to get buttons")
-		}
-	default:
-		return fmt.Errorf("unsupported reply.type %q: it is one of choice / multi / number / text", r.Type)
+		r.Type, r.Options, r.Step, r.Unit, r.Placeholder = f.Type, f.Options, f.Step, f.Unit, f.Placeholder
 	}
 
 	if r.Timeout < 0 {
@@ -145,4 +122,132 @@ func (r *ReplySpec) validate() error {
 		return errors.New("reply.webhook has no host")
 	}
 	return nil
+}
+
+func (r *ReplyField) validate(at string) error {
+	r.Type = strings.TrimSpace(r.Type)
+	if r.Type == "" {
+		// 给了选项却没写 type 是最常见的手误，替他补上比报错有用。
+		if len(r.Options) > 0 {
+			r.Type = models.ReplyChoice
+		} else {
+			r.Type = models.ReplyText
+		}
+	}
+	switch r.Type {
+	case models.ReplyChoice, models.ReplyMulti:
+		// 多选和单选的选项规则完全一样，差别只在用户能勾几个。
+		if len(r.Options) < 2 {
+			return errors.New(at + ".options needs at least two entries: a question with one option is not a question")
+		}
+		if len(r.Options) > replyMaxOptions {
+			return fmt.Errorf("%s.options takes at most %d entries", at, replyMaxOptions)
+		}
+		seen := make(map[string]bool, len(r.Options))
+		for i, o := range r.Options {
+			o = strings.TrimSpace(o)
+			if o == "" {
+				return errors.New(at + ".options cannot contain an empty entry")
+			}
+			if len([]rune(o)) > replyMaxOptionLen {
+				return fmt.Errorf("each entry in %s.options is at most %d characters", at, replyMaxOptionLen)
+			}
+			// 两个一样的选项在界面上无法区分，而回调只回文本，
+			// 发送方也分不出用户点的是哪一个。
+			if seen[o] {
+				return fmt.Errorf("%s.options contains %q twice", at, o)
+			}
+			seen[o] = true
+			r.Options[i] = o
+		}
+	case models.ReplyNumber:
+		if len(r.Options) > 0 {
+			return errors.New("type=number does not take " + at + ".options; it takes a numeric range")
+		}
+		if r.Min == nil || r.Max == nil {
+			return fmt.Errorf("type=number requires both %s.min and %s.max", at, at)
+		}
+		if *r.Min >= *r.Max {
+			return fmt.Errorf("%s.min (%g) must be less than %s.max (%g)", at, *r.Min, at, *r.Max)
+		}
+		if r.Step == nil {
+			// 不给就按 1：整数是最常见的情形，而 0 或负数会让「落到网格上」这步除以零。
+			one := 1.0
+			r.Step = &one
+		}
+		if *r.Step <= 0 {
+			return errors.New(at + ".step must be greater than 0")
+		}
+		if *r.Step > *r.Max-*r.Min {
+			return fmt.Errorf("%s.step (%g) is wider than the whole range, leaving only one value to pick", at, *r.Step)
+		}
+		if len([]rune(r.Unit)) > 8 {
+			return errors.New(at + ".unit is at most 8 characters; it is the unit shown after the number")
+		}
+		r.Unit = strings.TrimSpace(r.Unit)
+	case models.ReplyText:
+		// 文本回复没有选项。带了多半是把 type 写错了，直接说出来。
+		if len(r.Options) > 0 {
+			return errors.New("type=text does not take " + at + ".options; use type=choice to get buttons")
+		}
+	default:
+		return fmt.Errorf("unsupported %s.type %q: it is one of choice / multi / number / text", at, r.Type)
+	}
+	r.Placeholder = strings.TrimSpace(r.Placeholder)
+	if r.Placeholder != "" && r.Type != models.ReplyText {
+		return errors.New(at + ".placeholder is only for type=text")
+	}
+	if len([]rune(r.Placeholder)) > replyMaxPlaceholder {
+		return fmt.Errorf("%s.placeholder is at most %d characters", at, replyMaxPlaceholder)
+	}
+	return nil
+}
+
+// validateFields 组合回复的整体校验：数量、id，再逐个校验控件。
+func (r *ReplySpec) validateFields() error {
+	if r.Type != "" && r.Type != models.ReplyForm {
+		return errors.New("reply.type and reply.fields cannot be used together: put the type on each field")
+	}
+	if len(r.Options) > 0 || r.Min != nil || r.Max != nil || r.Step != nil || r.Unit != "" ||
+		r.Placeholder != "" || r.Required != nil {
+		return errors.New("with reply.fields, options / min / max / step / unit / placeholder / required go on each field, not on reply")
+	}
+	if len(r.Fields) > replyMaxFields {
+		return fmt.Errorf("reply.fields takes at most %d entries; three or fewer still reads like a quick reply", replyMaxFields)
+	}
+	seen := make(map[string]bool, len(r.Fields))
+	for i := range r.Fields {
+		f := &r.Fields[i]
+		at := fmt.Sprintf("reply.fields[%d]", i)
+		f.ID = strings.TrimSpace(f.ID)
+		if !validFieldID(f.ID) {
+			return fmt.Errorf("%s.id must be 1-%d characters of a-z, 0-9 and _; the callback keys each answer by it", at, replyMaxFieldIDLen)
+		}
+		if seen[f.ID] {
+			return fmt.Errorf("reply.fields uses the id %q twice", f.ID)
+		}
+		seen[f.ID] = true
+		// 控件里不能省 type：单控件写法里「给了选项就当 choice」的猜测，放在一组控件里只会更难查。
+		if strings.TrimSpace(f.Type) == "" {
+			return fmt.Errorf("%s.type is required", at)
+		}
+		if err := f.validate(at); err != nil {
+			return err
+		}
+	}
+	r.Type = models.ReplyForm
+	return nil
+}
+
+// validFieldID id 只许小写字母、数字、下划线：它要直接当回调 JSON 的键，也常被拿去当脚本里的变量名。
+func validFieldID(id string) bool {
+	if id == "" || len(id) > replyMaxFieldIDLen {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
 }

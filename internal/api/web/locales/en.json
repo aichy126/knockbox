@@ -98,6 +98,7 @@
     "reply.bad_number": "That is not a valid number.",
     "reply.empty": "A reply cannot be empty.",
     "reply.expired": "The reply window has closed; this answer was not sent.",
+    "reply.missing": "Some required items are still empty. Fill them in and send again.",
     "reply.message_gone": "This message is no longer there.",
     "reply.not_open": "This message does not take a reply.",
     "reply.out_of_range": "Pick a value between %g and %g.",

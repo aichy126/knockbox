@@ -43,6 +43,7 @@ const (
 	ReplyBadNumber  = "reply.bad_number"
 	ReplyEmpty      = "reply.empty"
 	ReplyOutOfRange = "reply.out_of_range"
+	ReplyMissing    = "reply.missing"
 
 	// 管理后台。读它的是这台服务器的主人，坐在浏览器前面。
 	//
@@ -87,7 +88,7 @@ var All = []string{
 	QuotaChannels, QuotaDaily, QuotaDailyWithETA,
 	ChannelNotFound, ChannelExists, ChannelBadLevel,
 	ReplyNotFound, ReplyNotOpen, ReplyExpired, ReplyDone,
-	ReplyBadChoice, ReplyBadNumber, ReplyEmpty, ReplyOutOfRange,
+	ReplyBadChoice, ReplyBadNumber, ReplyEmpty, ReplyOutOfRange, ReplyMissing,
 	AdminSessionExpired,
 	MemberNotFound, DeviceNotFound, MessageNotFound,
 	PasswordWrong, PasswordMismatch, PasswordWeak,

@@ -48,7 +48,10 @@ type ReplyResult struct {
 //     「已回复」这个状态，界面上按钮一直亮着。
 //  3. **回调入队与回复写入同一个事务。** 分开的话，进程在两步之间挂掉，
 //     用户看到自己回复成功、而发送方永远等不到 —— 这正是这个功能唯一不能出的错。
-func (r *Reply) Submit(userID int64, uid, text string) (*ReplyResult, error) {
+//
+// answers 只给组合回复（type=form）用：键是控件 id，值是那个控件的答案（字符串 / 字符串数组 / 数字）。
+// 单控件写法照旧走 text。
+func (r *Reply) Submit(userID int64, uid, text string, answers map[string]json.RawMessage) (*ReplyResult, error) {
 	text = strings.TrimSpace(text)
 
 	var out ReplyResult
@@ -84,7 +87,13 @@ func (r *Reply) Submit(userID int64, uid, text string) (*ReplyResult, error) {
 		if err != nil {
 			return err
 		}
-		if err := validateReplyText(spec, &text); err != nil {
+		if spec.Type == models.ReplyForm {
+			stored, err := validateAnswers(spec, answers)
+			if err != nil {
+				return err
+			}
+			text = stored
+		} else if err := validateReplyText(spec, &text); err != nil {
 			return err
 		}
 
@@ -169,6 +178,10 @@ func replySpecOf(raw string) (*replyView, error) {
 // 校验不能省。任何持有设备 token 的人都能往这个接口送任意字符串，
 // 而回调那一端多半拿它直接做分支判断。
 func validateReplyText(spec *replyView, text *string) error {
+	// 发送方说了可以不答（required: false）：空着交就是「没什么要补充的」，是一个正当的答案。
+	if *text == "" && spec.optional() {
+		return nil
+	}
 	switch spec.Type {
 	case models.ReplyChoice:
 		for _, o := range spec.Options {
@@ -261,6 +274,72 @@ func validateNumber(spec *replyView, text *string) error {
 	return nil
 }
 
+// validateAnswers 组合回复：逐个控件校验，归一成入库的形式——一个 JSON 对象，
+// 键是控件 id，值已经是回调里该有的类型（字符串 / 字符串数组 / 数字）。
+//
+// 选填的控件没答，入库和回调里都【没有这个键】，而不是 ""：
+// 「没填」和「填了空串」对发送方是两回事，混成一个它就分不开了。
+// 送来的 id 里有规格里没有的，说明客户端和规格对不上，拒收比静默丢掉好。
+func validateAnswers(spec *replyView, answers map[string]json.RawMessage) (string, error) {
+	out := make(map[string]any, len(spec.Fields))
+	known := make(map[string]bool, len(spec.Fields))
+	for i := range spec.Fields {
+		f := &spec.Fields[i]
+		known[f.ID] = true
+		text, present := answerText(f.Type, answers[f.ID])
+		if !present {
+			if f.optional() {
+				continue
+			}
+			return "", uierr.New(uierr.ReplyMissing)
+		}
+		v := replyView{Type: f.Type, Options: f.Options, Min: f.Min, Max: f.Max, Step: f.Step, Unit: f.Unit}
+		if err := validateReplyText(&v, &text); err != nil {
+			return "", err
+		}
+		out[f.ID] = hookReplyValue(f.Type, text)
+	}
+	for id := range answers {
+		if !known[id] {
+			return "", uierr.New(uierr.ReplyBadChoice)
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// answerText 把一个控件的 JSON 答案还原成单控件写法里的那种字符串，好复用同一套校验。
+// 第二个返回值是「答了没有」：缺键、null、空字符串都算没答；多选给的空数组算答了（「一个都不要」）。
+func answerText(kind string, raw json.RawMessage) (string, bool) {
+	r := strings.TrimSpace(string(raw))
+	if r == "" || r == "null" {
+		return "", false
+	}
+	switch kind {
+	case models.ReplyMulti:
+		return r, true
+	case models.ReplyNumber:
+		// 数字或数字的字符串形式都收：脚本里两种写法都常见。
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			s = strings.TrimSpace(s)
+			return s, s != ""
+		}
+		return r, true
+	default:
+		var s string
+		if json.Unmarshal(raw, &s) != nil {
+			// 不是字符串：交给校验去拒（它不会等于任何选项）。
+			return r, true
+		}
+		s = strings.TrimSpace(s)
+		return s, s != ""
+	}
+}
+
 // hookPayload 发给回调地址的内容。
 //
 // 带上 title 而不只是 uid：接收方多半是一段自动化脚本，它不一定还记得这条消息是什么，
@@ -278,8 +357,14 @@ type hookPayload struct {
 	// 让它随类型变而不是一律给字符串：接收方多半直接拿它做判断，
 	// 数值回成 "24.5" 的话每一端都要自己再 parse 一次，而那正是出错的地方。
 	// choice 和 text 仍是字符串，所以已经接上的那些不受影响。
-	Reply     any   `json:"reply"`
-	RepliedAt int64 `json:"replied_at"`
+	//
+	// 组合回复没有「那一个答案」，不给 reply，只给 answers。
+	// 单控件写法里 reply 照旧（空着交时是 ""，不会被省掉：interface 里装着 "" 不算空）。
+	Reply any `json:"reply,omitempty"`
+	// Answers 按控件 id 给出每个答案。单控件写法也给，键固定是 "reply"，
+	// 这样接收方可以只认 answers 一种形状。
+	Answers   map[string]any `json:"answers,omitempty"`
+	RepliedAt int64          `json:"replied_at"`
 }
 
 // hookReplyValue 把入库的回复还原成回调里该有的 JSON 类型。
@@ -311,10 +396,18 @@ func enqueueHook(sess *xorm.Session, msg *models.Message, text string, now int64
 	if e, err := decodeExtra(msg.Extra); err == nil && e.Reply != nil {
 		kind = e.Reply.Type
 	}
-	body, err := json.Marshal(hookPayload{
-		UID: msg.UID, Channel: msg.ChannelId, Title: msg.Title,
-		Reply: hookReplyValue(kind, text), RepliedAt: now,
-	})
+	p := hookPayload{UID: msg.UID, Channel: msg.ChannelId, Title: msg.Title, RepliedAt: now}
+	if kind == models.ReplyForm {
+		var answers map[string]any
+		if err := json.Unmarshal([]byte(text), &answers); err != nil {
+			return err
+		}
+		p.Answers = answers
+	} else {
+		v := hookReplyValue(kind, text)
+		p.Reply, p.Answers = v, map[string]any{"reply": v}
+	}
+	body, err := json.Marshal(p)
 	if err != nil {
 		return err
 	}

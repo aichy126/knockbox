@@ -38,7 +38,7 @@ func TestReplyBumpsRev(t *testing.T) {
 	uid := replyable(t, d, ch, choiceSpec())
 
 	before := count(t, d, "SELECT rev AS n FROM message WHERE uid = '"+uid+"'")
-	out, err := NewReply(d).Submit(ch.UserId, uid, "不要打开")
+	out, err := NewReply(d).Submit(ch.UserId, uid, "不要打开", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestReplyEnqueuesHookWithPayloadAndSecret(t *testing.T) {
 	ch := fixture(t, d, 1, false)
 	uid := replyable(t, d, ch, choiceSpec())
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开", nil); err != nil {
 		t.Fatal(err)
 	}
 	var hooks []models.ReplyHook
@@ -110,7 +110,7 @@ func TestReplyIsOnceOnlyUnderConcurrency(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			_, results[i] = NewReply(d).Submit(ch.UserId, uid, answers[i])
+			_, results[i] = NewReply(d).Submit(ch.UserId, uid, answers[i], nil)
 		}(i)
 	}
 	close(start)
@@ -153,7 +153,7 @@ func TestReplyRejectedAfterDeadline(t *testing.T) {
 		"UPDATE message SET reply_until = ? WHERE uid = ?", time.Now().Unix()-1, uid); err != nil {
 		t.Fatal(err)
 	}
-	_, err := NewReply(d).Submit(ch.UserId, uid, "不要打开")
+	_, err := NewReply(d).Submit(ch.UserId, uid, "不要打开", nil)
 	if err == nil {
 		t.Fatal("过了时限还能回复")
 	}
@@ -196,7 +196,7 @@ func TestReplyWithoutTimeoutNeverExpires(t *testing.T) {
 	if res.ReplyUntil != 0 {
 		t.Errorf("没给 timeout 就不该有时限，得到 %d", res.ReplyUntil)
 	}
-	if _, err := NewReply(d).Submit(ch.UserId, res.UID, "打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, res.UID, "打开", nil); err != nil {
 		t.Fatalf("无时限的消息应当一直可回: %v", err)
 	}
 }
@@ -208,7 +208,7 @@ func TestReplyChoiceMustBeOneOfTheOptions(t *testing.T) {
 	ch := fixture(t, d, 1, false)
 	uid := replyable(t, d, ch, choiceSpec())
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "顺便把灯也开了"); err == nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "顺便把灯也开了", nil); err == nil {
 		t.Fatal("不在选项里的答案被接受了")
 	}
 	if n := count(t, d, "SELECT COUNT(*) AS n FROM reply_hook"); n != 0 {
@@ -224,7 +224,7 @@ func TestReplyRejectedOnOneWayMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewReply(d).Submit(ch.UserId, res.UID, "好的"); err == nil {
+	if _, err := NewReply(d).Submit(ch.UserId, res.UID, "好的", nil); err == nil {
 		t.Fatal("单向消息被回复了")
 	}
 }
@@ -235,7 +235,7 @@ func TestReplyRejectedForOtherUser(t *testing.T) {
 	ch := fixture(t, d, 1, false)
 	uid := replyable(t, d, ch, choiceSpec())
 
-	if _, err := NewReply(d).Submit(ch.UserId+999, uid, "打开"); err == nil {
+	if _, err := NewReply(d).Submit(ch.UserId+999, uid, "打开", nil); err == nil {
 		t.Fatal("别人的消息被回复了")
 	}
 }
@@ -247,10 +247,10 @@ func TestReplyTextRejectsEmpty(t *testing.T) {
 	uid := replyable(t, d, ch, &ReplySpec{
 		Type: models.ReplyText, Webhook: "https://x.test/hook"})
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "   "); err == nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "   ", nil); err == nil {
 		t.Fatal("空白文本回复被接受了")
 	}
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "先别部署，等我看完日志"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "先别部署，等我看完日志", nil); err != nil {
 		t.Fatalf("正常文本回复应当被接受: %v", err)
 	}
 }
@@ -299,7 +299,7 @@ func TestRepliedStateSyncsToOtherDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "不要打开", nil); err != nil {
 		t.Fatal(err)
 	}
 	out, err := NewSync(d).Since(ch.UserId, cursor, 100)
@@ -325,7 +325,7 @@ func TestMultiReply(t *testing.T) {
 		Type: models.ReplyMulti, Options: []string{"api", "worker", "cron"},
 		Webhook: "https://x.test/h"})
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, `["worker","api"]`); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, `["worker","api"]`, nil); err != nil {
 		t.Fatal(err)
 	}
 	var msg models.Message
@@ -360,7 +360,7 @@ func TestMultiReplyAcceptsEmptySelection(t *testing.T) {
 	uid := replyable(t, d, ch, &ReplySpec{
 		Type: models.ReplyMulti, Options: []string{"a", "b"}, Webhook: "https://x.test/h"})
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, `[]`); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, `[]`, nil); err != nil {
 		t.Fatalf("一个都不选应当被接受：%v", err)
 	}
 	var msg models.Message
@@ -379,7 +379,7 @@ func TestMultiReplyRejectsUnknownOption(t *testing.T) {
 	uid := replyable(t, d, ch, &ReplySpec{
 		Type: models.ReplyMulti, Options: []string{"a", "b"}, Webhook: "https://x.test/h"})
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, `["a","顺便把别的也重启了"]`); err == nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, `["a","顺便把别的也重启了"]`, nil); err == nil {
 		t.Fatal("混进未知选项却被接受了")
 	}
 	if n := count(t, d, "SELECT COUNT(*) AS n FROM reply_hook"); n != 0 {
@@ -409,7 +409,7 @@ func TestNumberReplySnapsToStep(t *testing.T) {
 			uid := replyable(t, d, ch, &ReplySpec{
 				Type: models.ReplyNumber, Min: &lo, Max: &hi, Step: &st,
 				Unit: "°C", Webhook: "https://x.test/h"})
-			if _, err := NewReply(d).Submit(ch.UserId, uid, c.in); err != nil {
+			if _, err := NewReply(d).Submit(ch.UserId, uid, c.in, nil); err != nil {
 				t.Fatal(err)
 			}
 			var msg models.Message
@@ -432,7 +432,7 @@ func TestNumberReplyRejectsOutOfRange(t *testing.T) {
 		Type: models.ReplyNumber, Min: &lo, Max: &hi, Webhook: "https://x.test/h"})
 
 	for _, bad := range []string{"15", "31", "abc", "NaN", ""} {
-		if _, err := NewReply(d).Submit(ch.UserId, uid, bad); err == nil {
+		if _, err := NewReply(d).Submit(ch.UserId, uid, bad, nil); err == nil {
 			t.Errorf("%q 应当被拒绝", bad)
 		}
 	}
@@ -450,7 +450,7 @@ func TestNumberReplyIsANumberInTheCallback(t *testing.T) {
 		Type: models.ReplyNumber, Min: &lo, Max: &hi, Step: &st,
 		Unit: "°C", Webhook: "https://x.test/h"})
 
-	if _, err := NewReply(d).Submit(ch.UserId, uid, "24.5"); err != nil {
+	if _, err := NewReply(d).Submit(ch.UserId, uid, "24.5", nil); err != nil {
 		t.Fatal(err)
 	}
 	var hooks []models.ReplyHook
