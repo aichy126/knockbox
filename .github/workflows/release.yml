@@ -19,7 +19,7 @@ jobs:
         with: { go-version-file: go.mod, cache: true }
       # 管理界面要先构建。goreleaser 只编 Go——不构建的话 go:embed 收进去的是
       # 一个空目录，发出去的二进制后台是一片空白，而这一步照样绿。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with: { node-version: 22, cache: npm, cache-dependency-path: admin/package-lock.json }
       - run: npm ci
         working-directory: admin
@@ -43,7 +43,7 @@ jobs:
       # 编译本身是交叉编译（Dockerfile 里按 TARGETARCH 编，CGO_ENABLED=0 所以零成本），
       # QEMU 只用来跑 runtime 那一层的 apk add。
       - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v4
         with:
@@ -80,7 +80,7 @@ jobs:
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: env.DOCKERHUB_USERNAME != ''
 
       - uses: docker/login-action@v4
