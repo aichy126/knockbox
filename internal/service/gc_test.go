@@ -103,3 +103,47 @@ func TestGCNoRetentionKeepsEverything(t *testing.T) {
 		t.Fatal("自建模式下不该清理任何消息")
 	}
 }
+
+// TestGCKeepsChannelMsgCount 保留期清理删掉消息后，频道的 msg_count 必须跟着变。
+//
+// msg_count 是反范式计数，发送、删除单条、清空频道都维护它；清理按成员删、会跨这个人名下的
+// 每个频道，漏了这一步的话数字永久偏大，而且之后没有任何路径会把它算回来。
+func TestGCKeepsChannelMsgCount(t *testing.T) {
+	d, _ := newTestDAO(t)
+	uid := mustUser(t, d)
+	a := mustChannel(t, d, uid)
+	b := mustChannel(t, d, uid)
+	old := time.Now().AddDate(0, 0, -60).Unix()
+	recent := time.Now().Unix()
+	ins := func(ch string, uid2 string, at int64, rev int64) {
+		if _, err := d.Engine().Exec(
+			`INSERT INTO message(uid,user_id,channel_id,type,title,rev,created_at) VALUES(?,?,?,'text','t',?,?)`,
+			uid2, uid, ch, rev, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a：两条超期 + 一条新的；b：一条超期
+	ins(a, "a1", old, 1)
+	ins(a, "a2", old, 2)
+	ins(a, "a3", recent, 3)
+	ins(b, "b1", old, 4)
+	if _, err := d.Engine().Exec("UPDATE channel SET msg_count = CASE id WHEN ? THEN 3 ELSE 1 END WHERE id IN (?,?)", a, a, b); err != nil {
+		t.Fatal(err)
+	}
+
+	st := NewSettings(d, Defaults{PublicEnabled: true, RetentionDays: 30})
+	NewGC(d, nil, st, 0).Once()
+
+	for ch, want := range map[string]int64{a: 1, b: 0} {
+		var got, real int64
+		if _, err := d.Engine().SQL("SELECT msg_count FROM channel WHERE id=?", ch).Get(&got); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.Engine().SQL("SELECT COUNT(*) FROM message WHERE channel_id=? AND deleted_at=0", ch).Get(&real); err != nil {
+			t.Fatal(err)
+		}
+		if got != want || got != real {
+			t.Fatalf("频道 %s：msg_count=%d，实际 %d 条，应为 %d", ch, got, real, want)
+		}
+	}
+}
