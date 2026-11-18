@@ -11,6 +11,7 @@ import (
 	kapns "github.com/aichy126/knockbox/internal/library/apns"
 	"github.com/aichy126/knockbox/internal/models"
 	"github.com/sideshow/apns2"
+	"xorm.io/xorm"
 )
 
 // 退避梯度。超过 maxAttempts 次置「已放弃」。
@@ -29,10 +30,8 @@ func withJitter(d time.Duration) time.Duration {
 // push_log 本身就是队列：服务重启后扫 status IN (0,2) 即可续推，不丢消息，
 // 也不用引入 Redis。这是 SQLite 在单机自建场景的最大红利。
 //
-// ⚠️ **同一个数据库上只能跑一个实例。** claim 只是把到期的记录取出来，
-// 没有加租约，靠「一个进程只有一条 Run 循环」来保证不重复投递。
-// 两个进程指向同一个库的话，每条消息会被推两遍。
-// 要横向扩就得先给 push_log 加租约列（认领者 + 认领到期时间），现在没有。
+// 同一个库上可以同时跑两个实例（部署时新旧容器会短暂并存）：claim 在写事务里
+// 把领到的记录的 next_retry_at 推到租约到期时刻，别的进程就取不到它们，见 claim。
 type Pusher struct {
 	d           *dao.DAO
 	cl          *kapns.Client
@@ -137,27 +136,55 @@ func (p *Pusher) drain(ctx context.Context) (int, error) {
 	}
 }
 
+// leaseMargin 租约在「这一批最坏要投多久」之外再留的余量。
+const leaseMargin = time.Minute
+
+// claim 领走一批到期的投递记录。
+//
+// 【选出来和领走在同一个写事务里】事务以 BEGIN IMMEDIATE 开始（dao.Tx），
+// 两个进程的 claim 因此是排队的，不会交错。领走 = 把 next_retry_at 推到租约到期时刻：
+// 别的进程的 claim 同样只取 next_retry_at <= now 的行，于是同一条只会被一个进程取到。
+// 部署时新旧容器会短暂指向同一个库（先起后停），没有这一步每条消息会被推两遍。
+//
+// 租约不用另外释放：投完之后 finish / retry 会覆盖 status 与 next_retry_at。
+// 进程在投递中途被杀的话，租约到期后这批会被重新领走——至少一次，不会丢。
+// 代价是被杀那一刻手上的那批要等租约过了才续推，所以租约按这一批最坏要投多久来定，不往大了取。
 func (p *Pusher) claim(limit int) ([]job, error) {
-	var rows []claimRow
-	if err := p.d.Engine().SQL(claimSQL,
-		models.PushPending, models.PushRetry, time.Now().Unix(), limit).Find(&rows); err != nil {
-		return nil, err
-	}
-	out := make([]job, 0, len(rows))
-	for _, r := range rows {
-		// 关联记录不在了（消息被保留策略清掉、设备被删、频道被删）时，
-		// 必须把这条置终态。留着不动的话它会永远停在 pending，
-		// 每一轮兜底扫描都把它捞出来再丢掉。
-		switch {
-		case r.MsgID == 0:
-			p.discard(r.LogID, "the message record is gone")
-		case r.DevID == 0:
-			p.discard(r.LogID, "the device record is gone")
-		case r.ChID == "":
-			p.discard(r.LogID, "the channel record is gone")
-		default:
-			out = append(out, r.job())
+	var out []job
+	err := p.d.Tx(func(sess *xorm.Session) error {
+		now := time.Now()
+		var rows []claimRow
+		if err := sess.SQL(claimSQL,
+			models.PushPending, models.PushRetry, now.Unix(), limit).Find(&rows); err != nil {
+			return err
 		}
+		// drain 按 concurrency 路并发投这一批，每条最多等 timeout
+		rounds := (len(rows) + p.concurrency - 1) / p.concurrency
+		leaseUntil := now.Add(time.Duration(rounds)*p.timeout + leaseMargin).Unix()
+		out = make([]job, 0, len(rows))
+		for _, r := range rows {
+			// 关联记录不在了（消息被保留策略清掉、设备被删、频道被删）时，
+			// 必须把这条置终态。留着不动的话它会永远停在 pending，
+			// 每一轮兜底扫描都把它捞出来再丢掉。
+			switch {
+			case r.MsgID == 0:
+				p.discard(sess, r.LogID, "the message record is gone")
+			case r.DevID == 0:
+				p.discard(sess, r.LogID, "the device record is gone")
+			case r.ChID == "":
+				p.discard(sess, r.LogID, "the channel record is gone")
+			default:
+				if _, err := sess.Exec("UPDATE push_log SET next_retry_at = ? WHERE id = ?",
+					leaseUntil, r.LogID); err != nil {
+					return err
+				}
+				out = append(out, r.job())
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -234,8 +261,11 @@ const claimSQL = `
 	ORDER BY pl.id LIMIT ?`
 
 // discard 把一条无法再投递的记录置终态。
-func (p *Pusher) discard(logID int64, reason string) {
-	_, _ = p.d.Engine().Exec(
+//
+// 必须走 claim 的那个事务：换一条连接去写，会排在 claim 自己持有的写锁后面，
+// 等满 busy_timeout 再失败。
+func (p *Pusher) discard(sess *xorm.Session, logID int64, reason string) {
+	_, _ = sess.Exec(
 		"UPDATE push_log SET status = ?, reason = ?, updated_at = ? WHERE id = ?",
 		models.PushFailed, reason, time.Now().Unix(), logID)
 }
