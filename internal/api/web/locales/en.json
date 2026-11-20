@@ -231,6 +231,7 @@
       "delivery_log": "Delivery log",
       "unknown_reply": "A reply type this version of the admin interface does not know: ",
       "waiting_text": "Waiting for a typed answer",
+      "left_empty": "Left empty",
       "replied": "Answered",
       "expired": "The time limit passed at %s with no answer",
       "waiting_till": "Waiting · until %s",

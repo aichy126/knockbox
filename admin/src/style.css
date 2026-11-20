@@ -167,6 +167,10 @@ pre.body{margin:0;font:inherit;white-space:pre-wrap;line-height:1.6;word-break:b
 .slider .ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted-fg)}
 .rtext{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--muted);color:var(--muted-fg);font-size:14px}
 .rtext.filled{background:var(--card);color:var(--fg)}
+.rfield{display:flex;flex-direction:column;gap:6px}
+.rfield+.rfield{margin-top:4px}
+.rlabel{display:flex;align-items:baseline;gap:8px;font-size:13px;font-weight:600}
+.rlabel .dim{font-weight:400;font-size:12px}
 .rstatus{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted-fg)}
 mark.hl{background:var(--warning-soft);color:inherit;border-radius:3px;padding:0 2px}
 
