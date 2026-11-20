@@ -231,6 +231,7 @@
       "delivery_log": "投递记录",
       "unknown_reply": "这个版本的后台不认识的回复形态：",
       "waiting_text": "等待文字回复",
+      "left_empty": "未填写",
       "replied": "已回复",
       "expired": "时限已过（%s），没有回复",
       "waiting_till": "等待回复 · 截止 %s",

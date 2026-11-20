@@ -23,8 +23,12 @@ const m = computed(() => d.value?.message)
 const now = Math.floor(Date.now() / 1000)
 
 // multi 的答复在库里是一个 JSON 数组；直接显示会把 ["api","worker"] 摆给人看。
+// 组合回复存的是 {控件 id: 答案}，这一行不放它：各项答案在下面的控件里，带着各自的 label。
 const answer = computed(() => {
   const raw = m.value?.reply || ''
+  let kind = ''
+  try { kind = JSON.parse(m.value?.extra || '{}').reply?.type || '' } catch {}
+  if (kind === 'form') return ''
   if (!raw.startsWith('[')) return raw
   try { return JSON.parse(raw).join(', ') } catch { return raw }
 })
@@ -59,7 +63,7 @@ watch(() => route.params.uid, load)
       <div v-if="m.replyable" class="card">
         <div class="card-h"><div class="t">{{ t('msgs.card_reply') }}</div></div>
         <div class="card-b" style="display:flex;flex-direction:column;gap:12px;padding-top:2px">
-          <div v-if="m.replied_at" style="display:flex;align-items:center;gap:8px"><Badge kind="ok">{{ t('channel.replied') }}</Badge><b>{{ answer }}</b><span class="dim" style="font-size:12.5px">{{ full(m.replied_at) }}</span></div>
+          <div v-if="m.replied_at" style="display:flex;align-items:center;gap:8px"><Badge kind="ok">{{ t('channel.replied') }}</Badge><b v-if="answer">{{ answer }}</b><span class="dim" style="font-size:12.5px">{{ full(m.replied_at) }}</span></div>
           <div v-else-if="m.reply_until > 0 && now > m.reply_until" style="display:flex;align-items:center;gap:8px"><Badge kind="warn">{{ t('msgs.reply_expired') }}</Badge><span class="dim">{{ t('msgs.reply_exp_sub', [full(m.reply_until)]) }}</span></div>
           <div v-else style="display:flex;align-items:center;gap:8px"><Badge kind="muted">{{ t('msgs.reply_waiting') }}</Badge><span class="dim">{{ m.reply_until > 0 ? t('msgs.reply_until', [full(m.reply_until)]) : t('msgs.reply_no_limit') }}</span></div>
           <ReplyReadonly :m="m" :status="false" style="border-top:0;padding-top:0" />

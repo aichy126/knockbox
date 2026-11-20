@@ -188,14 +188,34 @@ const agentPromptZH = `我有一个 Knockbox 推送服务，可以把消息发�
     "reply": {"type":"choice","options":["部署","先别"],"webhook":"https://你的地址/hook"}
   }' {{URL}}
 
-  type      choice 出按钮点一个，multi 勾几个再提交，number 拖滑块选一个数，text 出输入框
-  options   choice / multi 的选项，2 到 10 项，每项不超过 40 字
-  min max   type=number 必填的范围；step 不填按 1，unit 是显示在数字后面的单位（°C / 分钟）
-  timeout   多少秒内有效，不填就一直可以回。只有「不回就会自动发生别的事」才需要设
-  webhook   必填。我点了之后，服务端把答复 POST 到这个地址
+  type        choice 出按钮点一个，multi 勾几个再提交，number 拖滑块选一个数，text 出输入框
+  options     choice / multi 的选项，2 到 10 项，每项不超过 40 字
+  min max     type=number 必填的范围；step 不填按 1，unit 是显示在数字后面的单位（°C / 分钟）
+  placeholder type=text 输入框里的提示，不超过 60 字
+  required    缺省 true；设 false 允许空着交，text 空着交表示「没有要补充的」
+  fields      一次问几件事，见下
+  timeout     多少秒内有效，不填就一直可以回。只有「不回就会自动发生别的事」才需要设
+  webhook     必填。我点了之后，服务端把答复 POST 到这个地址
 
-  收到的内容：{"uid":"…","channel":"…","title":"…","reply":"不要打开","replied_at":1726…}
-  reply 的类型随形态变：choice / text 是字符串，multi 是字符串数组，number 是数字。
+  收到的内容：{"uid":"…","channel":"…","title":"…","reply":"不要打开","answers":{"reply":"不要打开"},"replied_at":1726…}
+  答案的类型随形态变：choice / text 是字符串，multi 是字符串数组，number 是数字。
+
+一次问几件事：用 fields 代替 type / options，最多 10 个，填好一起交。
+  curl -H 'Content-Type: application/json' -d '{
+    "title": "要部署到生产吗？",
+    "reply": {
+      "fields": [
+        {"id":"action","label":"怎么处理？","type":"choice","options":["部署","先别","回滚"]},
+        {"id":"note","label":"备注","type":"text","placeholder":"有什么要说明的？","required":false}
+      ],
+      "webhook": "https://你的地址/hook"
+    }
+  }' {{URL}}
+
+  每一项是上面四种之一，id 必填（a-z、0-9、_），label 是显示在它上方的问题，不超过 60 字。
+  能少就少，三项以内读起来仍像一次快速回复。
+  收到的内容只有 answers，按 id 给：{"uid":"…","title":"…","answers":{"action":"先别"},"replied_at":1726…}
+  选填项空着交时，它的 id 不出现在 answers 里。所以接收方只认 answers 就够了，单项和多项是同一种形状。
   请求头带 X-Knockbox-Signature: sha256=<HMAC-SHA256(请求体, 频道 token)>，可以用它验来源。
 
   没有能收 POST 的地址就别用 reply：在消息里说清你在等，然后停下来等我。`
@@ -234,15 +254,35 @@ Asking for an answer:
     "reply": {"type":"choice","options":["Deploy","Hold"],"webhook":"https://your-host/hook"}
   }' {{URL}}
 
-  type      choice: buttons, one tap. multi: checkboxes then submit. number: a slider. text: a field
-  options   the labels for choice and multi, 2 to 10, up to 40 characters each
-  min max   required for type=number; step defaults to 1, unit is shown after the number (°C / minutes)
-  timeout   seconds until the answer is no longer accepted. Omit for no limit — only set it when
-            something happens by itself once the time is up
-  webhook   required. Once I answer, the server POSTs it to this URL
+  type        choice: buttons, one tap. multi: checkboxes then submit. number: a slider. text: a field
+  options     the labels for choice and multi, 2 to 10, up to 40 characters each
+  min max     required for type=number; step defaults to 1, unit is shown after the number (°C / minutes)
+  placeholder for type=text: hint shown in the empty field, up to 60 characters
+  required    defaults to true. false lets me send it empty; an empty text answer means "nothing to add"
+  fields      ask several things at once (below)
+  timeout     seconds until the answer is no longer accepted. Omit for no limit — only set it when
+              something happens by itself once the time is up
+  webhook     required. Once I answer, the server POSTs it to this URL
 
-  What you receive: {"uid":"…","channel":"…","title":"…","reply":"Hold","replied_at":1726…}
-  reply is a string for choice and text, an array of strings for multi, a number for number.
+  What you receive: {"uid":"…","channel":"…","title":"…","reply":"Hold","answers":{"reply":"Hold"},"replied_at":1726…}
+  An answer is a string for choice and text, an array of strings for multi, a number for number.
+
+Asking several things at once: use fields instead of type / options, up to 10, answered and sent together.
+  curl -H 'Content-Type: application/json' -d '{
+    "title": "Deploy to production?",
+    "reply": {
+      "fields": [
+        {"id":"action","label":"Go ahead?","type":"choice","options":["Deploy","Hold","Roll back"]},
+        {"id":"note","label":"Note","type":"text","placeholder":"Anything to note?","required":false}
+      ],
+      "webhook": "https://your-host/hook"
+    }
+  }' {{URL}}
+
+  Each field is one of the four types above. id is required (a-z, 0-9, _); label is the question
+  shown above it, up to 60 characters. Fewer is better: three or less still reads like a quick reply.
+  What you receive has only answers, keyed by id: {"uid":"…","title":"…","answers":{"action":"Hold"},"replied_at":1726…}
+  An optional field left empty is absent from answers. Read answers and you handle one field and many the same way.
   Signed with X-Knockbox-Signature: sha256=<HMAC-SHA256(body, channel token)> so you can verify it.
 
   If you have no endpoint that can receive a POST, leave reply out: say in the message that you

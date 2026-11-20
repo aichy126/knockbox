@@ -15,6 +15,13 @@ const msg = (over = {}) => ({
   read: false, push: { ok: 2, total: 2 }, replyable: false, ...over,
 })
 const replyMsg = msg({ replyable: true, extra: JSON.stringify({ reply: { type: 'choice', options: ['Open', 'Keep closed'] } }), reply: 'Keep closed', replied_at: now })
+const formMsg = msg({ uid: 'U2', replyable: true, replied_at: now,
+  extra: JSON.stringify({ reply: { type: 'form', fields: [
+    { id: 'action', label: 'Go ahead?', type: 'choice', options: ['Deploy', 'Hold'] },
+    { id: 'pods', label: 'Replicas', type: 'number', min: 1, max: 9 },
+    { id: 'note', label: 'Note', type: 'text', required: false },
+  ] } }),
+  reply: JSON.stringify({ action: 'Hold', pods: 3 }) })
 
 const DATA = {
   me: { user: { id: 1, name: 'aichy', username: 'aichy', role: 'admin', unlimited: true },
@@ -28,7 +35,7 @@ const DATA = {
     devices: [{ id: 5, name: "Amy's iPhone", platform: 'iOS', model: 'iPhone18,1', os_version: '26.0', app_version: '1.1.1', apns_env: 'production', can_push: true, status: 1, sync_rev: 10482, last_seen_at: now }] },
   'channels/C1': { channel: { id: 'C1', name: 'Deploys', meta: '', muted: false, mute_until: 0, sound: 'default', level: 'active', messages: 2, last_msg_at: now },
     owner: { id: 1, name: 'aichy' }, token: 'ch_x', last_used_at: now, last_used_ip: '10.0.0.1', send_url: 'https://push.example.com/s/ch_x' },
-  'channels/C1/messages': { items: [msg(), replyMsg], has_more: true, next_cursor: '1' },
+  'channels/C1/messages': { items: [msg(), replyMsg, formMsg], has_more: true, next_cursor: '1' },
   'messages/U1': { message: replyMsg, reply_webhook: 'https://home.example.com/hook',
     push_log: [{ status: 1, http_status: 200, reason: '', attempts: 1, apns_id: 'A', updated_at: now, device: 'iPhone', apns_env: 'production' }],
     reply_hooks: [{ status: 1, attempt: 1, status_code: 200, error: '', updated_at: now }] },
@@ -161,6 +168,27 @@ describe('login page', () => {
     get.mockClear()
     const w = await render('/login', views.Login[1])
     expect(get.mock.calls.map((c) => c[0])).toContain('me')
+    w.unmount()
+  })
+})
+
+// 组合回复逐个控件画，每个控件带自己的 label。
+//
+// 只认四种单控件的话，type=form 的消息在后台只剩一句「不认识的回复形态」，
+// 主人看不到用户答了什么。
+describe('reply with several fields', () => {
+  it('draws each field with its label and answer', async () => {
+    setLang('en')
+    const { default: ReplyReadonly } = await import('../src/components/ReplyReadonly.vue')
+    const w = mount(ReplyReadonly, { props: { m: formMsg }, global: { plugins: [i18n] } })
+    const text = w.text()
+    expect(text).toContain('Go ahead?')
+    expect(text).toContain('Replicas')
+    expect(text).not.toContain('does not know')
+    expect(w.find('.choice span.on').text()).toBe('Hold')
+    expect(w.find('.slider .big').text()).toContain('3')
+    // 选填的 note 空着交了：标出来，而不是画成一个看着像「还没回」的空输入框
+    expect(w.findAll('.rfield')[2].text()).toContain('Left empty')
     w.unmount()
   })
 })
